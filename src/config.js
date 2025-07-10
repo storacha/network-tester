@@ -17,8 +17,7 @@ export const region = process.env.REGION || 'unknown'
 export const maxBytes = 100 * gb
 
 /** Maximum bytes for a single upload. */
-// const maxPerUploadBytes = 4 * gb
-export const maxPerUploadBytes = 5 * mb
+export const maxPerUploadBytes = 4 * gb
 
 /** Maximum CAR shard size. */
 export const maxShardSize = 512 * mb
