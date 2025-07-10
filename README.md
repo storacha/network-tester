@@ -20,3 +20,34 @@ The script generates event logs to the following files:
 * `data/source.csv` - information about the randomly generated source data. Each source has an ID that is referenced in other event logs.
 * `data/shards.csv` - information about each shard that is stored to the service as part of an "upload".
 * `data/uploads.csv` - information about each upload that is performed, i.e. the shards and the DAG root CID.
+
+## About
+
+The upload tests aim to upload a configured number of bytes to the service (default 100 GiB). The data is sent as many randomly sized uploads in order to simulate typical upload patterns. Additionally within a given upload, data is sharded - per the usual upload flow. All these values are configurable.
+
+For a given upload the script will generate either a single file, directory of files or a sharded diretory of files of varying sizes. The maximum size of a single upload can also be configured , but is set by default to 4 GiB.
+
+All configuration values can be found in [config.js](./src/config.js).
+
+We collect information about the data sources created, the shards that are transferred and the uploads that are registered:
+
+* Source
+    * ID (random UUID)
+    * Region
+    * Files count
+    * Total files size
+    * Created at
+* Shard
+    * ID (shard CID)
+    * Source ID
+    * Size
+    * Location commitment CID
+    * Location commitment URL
+    * Error details
+    * Created at
+    * Transferred at
+* Upload
+    * ID (DAG root CID)
+    * Source ID
+    * Shard CIDs
+    * Created at

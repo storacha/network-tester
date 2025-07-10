@@ -90,12 +90,9 @@ while (totalSize < maxBytes) {
             /** @type {API.Delegation<[IndexerAPI.AssertLocation]>|undefined} */
             let site
             try {
-              // Invoke blob/add and write bytes to write target
               const res = await Blob.add(invocationConf, digest, bytes, options)
               site = res.site
-
               const { version, roots, size, slices } = car
-
               controller.enqueue({ version, roots, size, cid, slices })
             } catch (/** @type {any} */ err) {
               error = err.stack ?? err.message ?? String(err)
