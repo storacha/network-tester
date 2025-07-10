@@ -138,10 +138,10 @@ while (totalSize < maxBytes) {
     console.error(`Error: uploading source: ${source.id}`, err)
   }
 
-  if (!root) throw new Error('missing root CID')
-
   let indexSuccess = false
   if (uploadSuccess) {
+    if (!root) throw new Error('missing root CID')
+
     const indexBytes = await indexShardedDAG(root, shards, shardIndexes)
 
     if (!indexBytes.ok) {
