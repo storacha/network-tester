@@ -1,5 +1,3 @@
-import fs from 'node:fs'
-import { Writable } from 'node:stream'
 import path from 'node:path'
 import formatBytes from 'bytes'
 import * as Link from 'multiformats/link'
@@ -28,9 +26,11 @@ const invocationConf = {
 }
 const options = { connection }
 
-const sourceLog = await EventLog.create(path.join(dataDir, 'sources.csv'))
-const shardLog = await EventLog.create(path.join(dataDir, 'shards.csv'))
-const uploadLog = await EventLog.create(path.join(dataDir, 'uploads.csv'))
+const [sourceLog, shardLog, uploadLog] = await Promise.all([
+  EventLog.create(path.join(dataDir, 'sources.csv')),
+  EventLog.create(path.join(dataDir, 'shards.csv')),
+  EventLog.create(path.join(dataDir, 'uploads.csv'))
+])
 
 console.log('Agent:')
 console.log(`  ${id.did()}`)
@@ -55,9 +55,6 @@ while (totalSize < maxBytes) {
   console.log('    type:', source.type)
   console.log('    count:', source.count)
   console.log('    size:', formatBytes(source.size))
-
-  const destPath = path.join(dataDir, `${source.id}.car`)
-  await source.stream().pipeTo(Writable.toWeb(fs.createWriteStream(destPath)))
 
   await sourceLog.append({
     id: source.id,
@@ -154,17 +151,15 @@ while (totalSize < maxBytes) {
     const indexLink = Link.create(carCode, indexDigest)
 
     try {
-      // Store the index in the space
       await Blob.add(invocationConf, indexDigest, indexBytes.ok, options)
-      // Register the index with the service
       await Index.add(invocationConf, indexLink, options)
-      // Register an upload with the service
       await Upload.add(invocationConf, root, shards, options)
 
       await uploadLog.append({
         // @ts-expect-error
         id: root.toString(),
         source: source.id,
+        index: indexLink.toString(),
         shards: shards.map(s => s.toString()).join('\n'),
         created: new Date().toISOString()
       })
@@ -181,10 +176,6 @@ while (totalSize < maxBytes) {
       console.error(`Error: uploading index for source: ${source.id}`, err)
     }
   }
-
-  console.log('Cleanup:')
-  console.log(`  ${destPath}`)
-  await fs.promises.rm(destPath)
 
   if (uploadSuccess && indexSuccess) {
     totalSources++

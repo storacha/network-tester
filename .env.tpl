@@ -1,5 +1,7 @@
 # did:key:z...
 PRIVATE_KEY=
 PROOF=
-# Any string to describe geographic region from whence test is being conducted
+# Optional - any string to describe geographic region where test is being run
 REGION=
+# Optional - the network to test (hot/staging-warm/...), defaults to "hot".
+NETWORK=

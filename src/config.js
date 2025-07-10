@@ -26,19 +26,21 @@ export const maxShardSize = 512 * mb
 const headers = { ...Service.defaultHeaders }
 headers['X-Client'] += ' UploadTester/' + Package.version.split('.')[0]
 
-// const stagingWarmConnection = Service.uploadServiceConnection({
-//   id: DID.parse('did:web:staging.up.warm.storacha.network'),
-//   url: new URL('https://staging.up.warm.storacha.network'),
-//   headers
-// })
+const stagingWarmConnection = Service.uploadServiceConnection({
+  id: DID.parse('did:web:staging.up.warm.storacha.network'),
+  url: new URL('https://staging.up.warm.storacha.network'),
+  headers
+})
 
-const defaultConnection = Service.uploadServiceConnection({
+const hotConnection = Service.uploadServiceConnection({
   id: DID.parse('did:web:up.storacha.network'),
   url: new URL('https://up.storacha.network'),
   headers
 })
 
-export const connection = defaultConnection
+export const connection = process.env.NETWORK === 'staging-warm'
+  ? stagingWarmConnection
+  : hotConnection
 
 export const id = Ed25519.parse(process.env.PRIVATE_KEY ?? '')
 
