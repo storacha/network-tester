@@ -5,15 +5,18 @@ Test uploads and more to the Storacha Network.
 ## Getting started
 
 1. Install Node.js
-2. Install the storacha CLI `npm install -g @storacha/cli`
-3. Rename `.env.tpl` to `.env`
-4. Create an identity for the upload tester `storacha key create`
-5. Add private key to `.env`
-6. Create a space for uploads to go to `storacha space create`
-7. Delegate access to the space `storacha delegation create -c space/blob/add -c space/index/add -c upload/add did:key:uploadTester --base64`
-8. Add delegation (proof) to `.env`
-9. Set your region in `.env` to something sensible
-10. Start the test using `npm start`
+2. Clone the repo and cd into it
+3. Install project dependencies `npm install`
+4. Install the storacha CLI `npm install -g @storacha/cli`
+5. Rename `.env.tpl` to `.env`
+6. Create an identity for the upload tester `storacha key create`
+7. Add private key to `.env`
+8. Create a space for uploads to go to `storacha space create`
+9. Delegate access to the space `storacha delegation create -c space/blob/add -c space/index/add -c upload/add did:key:uploadTester --base64`
+    * ⚠️ Ensure you set the correct [environment variables](https://gist.github.com/alanshaw/3c27e67bd9136c789e90950e3fc67644) if using non-production network.
+10. Add delegation (proof) to `.env`
+11. Set your region in `.env` to something sensible
+12. Start the test using `npm start`
 
 The script generates event logs to the following files:
 
