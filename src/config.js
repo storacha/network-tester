@@ -4,9 +4,10 @@ import dotenv from 'dotenv'
 import * as Service from '@storacha/client/service'
 import * as Proof from '@storacha/client/proof'
 import * as Ed25519 from '@storacha/client/principal/ed25519'
+import { SHARD_SIZE } from '@storacha/upload-client/sharding'
 import * as DID from '@ipld/dag-ucan/did'
 import Package from '../package.json' with { type: 'json' }
-import { gb, mb } from './lib.js'
+import { gb } from './lib.js'
 
 dotenv.config()
 
@@ -20,7 +21,9 @@ export const maxBytes = 100 * gb
 export const maxPerUploadBytes = 4 * gb
 
 /** Maximum CAR shard size. */
-export const maxShardSize = 512 * mb
+export const maxShardSize = process.env.NETWORK === 'staging-warm'
+  ? 266_338_304 // https://gist.github.com/alanshaw/be76c3d4ff555c3a0ee9f5b6e96b5436
+  : SHARD_SIZE
 
 const headers = { ...Service.defaultHeaders }
 headers['X-Client'] += ' UploadTester/' + Package.version.split('.')[0]
