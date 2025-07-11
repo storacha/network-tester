@@ -22,6 +22,7 @@ The script generates event logs to the following files:
 
 * `data/source.csv` - information about the randomly generated source data. Each source has an ID that is referenced in other event logs.
 * `data/shards.csv` - information about each shard that is stored to the service as part of an "upload".
+* `data/replications.csv` - information about replication tasks requested for a given shard.
 * `data/uploads.csv` - information about each upload that is performed, i.e. the shards and the DAG root CID.
 
 ## About
