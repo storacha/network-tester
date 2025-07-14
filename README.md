@@ -43,6 +43,7 @@ We collect information about the data sources created, the shards that are trans
 * Shard
     * ID (shard CID)
     * Source ID
+    * Upload ID
     * Size
     * Location commitment CID
     * Location commitment URL
@@ -50,8 +51,10 @@ We collect information about the data sources created, the shards that are trans
     * Transfer started at
     * Transfer ended at
 * Upload
-    * ID (DAG root CID)
+    * ID (random UUID)
+    * DAG root CID
     * Source ID
     * Shard CIDs
+    * Error details
     * Upload started at
     * Upload ended at (including all shards, index and `upload/add` registration)
