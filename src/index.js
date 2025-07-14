@@ -1,5 +1,6 @@
 import path from 'node:path'
 import formatBytes from 'bytes'
+import formatDuration from 'humanize-duration'
 import * as Link from 'multiformats/link'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { BlockStream, code as carCode } from '@storacha/upload-client/car'
@@ -48,6 +49,7 @@ while (totalSize < maxBytes) {
   const maxSize = Math.min(maxPerUploadBytes, maxBytes - totalSize)
   if (maxSize < minFileSize) break
 
+  const start = new Date()
   const source = generateSource({ maxSize })
 
   console.log('Source:')
@@ -62,7 +64,7 @@ while (totalSize < maxBytes) {
     type: source.type,
     count: source.count,
     size: source.size,
-    created: new Date().toISOString()
+    created: start.toISOString()
   })
 
   totalSize += source.size
@@ -85,7 +87,7 @@ while (totalSize < maxBytes) {
             const bytes = new Uint8Array(await car.arrayBuffer())
             const digest = await sha256.digest(bytes)
             const cid = Link.create(carCode, digest)
-            const created = new Date()
+            const start = new Date()
             let error = ''
             /** @type {API.Delegation<[IndexerAPI.AssertLocation]>|undefined} */
             let site
@@ -99,12 +101,14 @@ while (totalSize < maxBytes) {
               throw err
             } finally {
               const url = site ? site.capabilities[0].nb.location[0] : ''
+              const end = new Date()
 
               console.log('Shard:')
               console.log(`  ${cid}`)
               console.log(`    size: ${formatBytes(car.size)}`)
               console.log(`    url: ${url}`)
               if (error) console.log(`    error: ${error}`)
+              console.log(`    elapsed: ${formatDuration(end.getTime() - start.getTime())}`)
 
               await shardLog.append({
                 id: cid.toString(),
@@ -113,8 +117,8 @@ while (totalSize < maxBytes) {
                 url,
                 size: car.size,
                 error,
-                created: created.toISOString(),
-                transferred: new Date().toISOString()
+                started: start.toISOString(),
+                ended: end.toISOString()
               })
             }
           }
@@ -152,13 +156,15 @@ while (totalSize < maxBytes) {
       await Index.add(invocationConf, indexLink, options)
       await Upload.add(invocationConf, root, shards, options)
 
+      const end = new Date()
       await uploadLog.append({
         // @ts-expect-error
         id: root.toString(),
         source: source.id,
         index: indexLink.toString(),
         shards: shards.map(s => s.toString()).join('\n'),
-        created: new Date().toISOString()
+        started: start.toISOString(),
+        ended: end.toISOString()
       })
       
       console.log('Upload:')
@@ -167,6 +173,7 @@ while (totalSize < maxBytes) {
       for (const s of shards) {
         console.log(`      ${s}`)
       }
+      console.log(`    elapsed: ${formatDuration(end.getTime() - start.getTime())}`)
 
       indexSuccess = true
     } catch (err) {

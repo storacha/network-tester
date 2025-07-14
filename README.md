@@ -47,10 +47,11 @@ We collect information about the data sources created, the shards that are trans
     * Location commitment CID
     * Location commitment URL
     * Error details
-    * Created at
-    * Transferred at
+    * Transfer started at
+    * Transfer ended at
 * Upload
     * ID (DAG root CID)
     * Source ID
     * Shard CIDs
-    * Created at
+    * Upload started at
+    * Upload ended at (including all shards, index and `upload/add` registration)
