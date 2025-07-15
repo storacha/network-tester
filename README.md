@@ -45,6 +45,7 @@ We collect information about the data sources created, the shards that are trans
     * ID (shard CID)
     * Source ID
     * Size
+    * Target node DID
     * Location commitment CID
     * Location commitment URL
     * Error details

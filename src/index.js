@@ -110,6 +110,7 @@ while (totalSize < maxBytes) {
               await shardLog.append({
                 id: cid.toString(),
                 source: source.id,
+                node: site ? site.issuer.did() : '',
                 locationCommitment: site ? site.cid.toString() : '',
                 url,
                 size: car.size,
