@@ -145,8 +145,8 @@ while (totalSize < maxBytes) {
                 )
                 // Note: we are not waiting for these tasks to complete
                 tasks = res.site.map(s => s['ucan/await'][1])
-              } catch (/** @type {any} */ err) {
-                error = err.stack ?? err.message ?? String(err)
+              } catch (err) {
+                error = inspect(err)
                 throw err
               } finally {
                 console.log('Replication:')
@@ -162,6 +162,7 @@ while (totalSize < maxBytes) {
                 await replicationLog.append({
                   id: cid.toString(),
                   source: source.id,
+                  upload: uploadID,
                   tasks: tasks.map(t => t.toString()).join('\n'),
                   error,
                   created: new Date().toISOString()

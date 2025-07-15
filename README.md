@@ -55,6 +55,7 @@ We collect information about the data sources created, the shards that are trans
 * Replication
     * ID (shard CID)
     * Source ID
+    * Upload ID
     * Replication task CIDs
     * Error details
     * Created at
