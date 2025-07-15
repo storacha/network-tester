@@ -25,6 +25,9 @@ export const maxShardSize = process.env.NETWORK === 'staging-warm'
   ? 266_338_304 // https://gist.github.com/alanshaw/be76c3d4ff555c3a0ee9f5b6e96b5436
   : SHARD_SIZE
 
+/** Number of replicas to ensure (note: includes original) */
+export const replicas = process.env.NETWORK === 'staging-warm' ? 3 : 1
+
 const headers = { ...Service.defaultHeaders }
 headers['X-Client'] += ' UploadTester/' + Package.version.split('.')[0]
 
