@@ -63,6 +63,7 @@ We collect information about the data sources created, the shards that are trans
     * ID (random UUID)
     * DAG root CID
     * Source ID
+    * Index CID
     * Shard CIDs
     * Error details
     * Upload started at
