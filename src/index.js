@@ -37,6 +37,10 @@ const [sourceLog, shardLog, replicationLog, uploadLog] = await Promise.all([
   EventLog.create(path.join(dataDir, 'uploads.csv'))
 ])
 
+console.log('Region:')
+console.log(`  ${process.env.REGION ?? 'unknown'}`)
+console.log('Network:')
+console.log(`  ${process.env.NETWORK ?? 'hot'}`)
 console.log('Agent:')
 console.log(`  ${id.did()}`)
 console.log('Space:')
