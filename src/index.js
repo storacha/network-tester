@@ -12,6 +12,7 @@ import * as Blob from '@storacha/upload-client/blob'
 import * as Index from '@storacha/upload-client/index'
 import * as Upload from '@storacha/upload-client/upload'
 import { indexShardedDAG } from '@storacha/blob-index'
+import seededRandom from 'seedrandom'
 import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, connection, dataDir, replicas } from './config.js'
 import { generateSource, minFileSize } from './gen.js'
 import * as EventLog from './event-log.js'
@@ -58,16 +59,18 @@ while (totalSize < maxBytes) {
   if (maxSize < minFileSize) break
 
   const start = new Date()
-  const source = generateSource({ maxSize })
+  const sourceID = generateUUID()
+  const rng = seededRandom(sourceID)
+  const source = generateSource({ maxSize, rng })
 
   console.log('Source:')
-  console.log(`  ${source.id}`)
+  console.log(`  ${sourceID}`)
   console.log('    type:', source.type)
   console.log('    count:', source.count)
   console.log('    size:', formatBytes(source.size))
 
   await sourceLog.append({
-    id: source.id,
+    id: sourceID,
     region,
     type: source.type,
     count: source.count,
@@ -120,7 +123,7 @@ while (totalSize < maxBytes) {
 
               await shardLog.append({
                 id: cid.toString(),
-                source: source.id,
+                source: sourceID,
                 upload: uploadID,
                 node: site ? site.issuer.did() : '',
                 locationCommitment: site ? site.cid.toString() : '',
@@ -165,7 +168,7 @@ while (totalSize < maxBytes) {
 
                 await replicationLog.append({
                   id: cid.toString(),
-                  source: source.id,
+                  source: sourceID,
                   upload: uploadID,
                   tasks: tasks.map(t => t.toString()).join('\n'),
                   error,
@@ -231,7 +234,7 @@ while (totalSize < maxBytes) {
       id: uploadID,
       // @ts-expect-error
       root: root ? root.toString() : '',
-      source: source.id,
+      source: sourceID,
       upload: uploadID,
       index: indexLink ? indexLink.toString() : '',
       shards: shards.map(s => s.toString()).join('\n'),
