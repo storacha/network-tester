@@ -1,8 +1,11 @@
 import path from 'node:path'
+import { inspect } from 'node:util'
 import formatBytes from 'bytes'
 import formatDuration from 'humanize-duration'
 import * as Link from 'multiformats/link'
 import { sha256 } from 'multiformats/hashes/sha2'
+import { base58btc } from 'multiformats/bases/base58'
+import { v4 as generateUUID } from 'uuid'
 import { BlockStream, code as carCode } from '@storacha/upload-client/car'
 import { ShardingStream } from '@storacha/upload-client/sharding'
 import * as Blob from '@storacha/upload-client/blob'
@@ -34,6 +37,10 @@ const [sourceLog, shardLog, replicationLog, uploadLog] = await Promise.all([
   EventLog.create(path.join(dataDir, 'uploads.csv'))
 ])
 
+console.log('Region:')
+console.log(`  ${process.env.REGION ?? 'unknown'}`)
+console.log('Network:')
+console.log(`  ${process.env.NETWORK ?? 'hot'}`)
 console.log('Agent:')
 console.log(`  ${id.did()}`)
 console.log('Space:')
@@ -68,8 +75,7 @@ while (totalSize < maxBytes) {
     created: start.toISOString()
   })
 
-  totalSize += source.size
-
+  const uploadID = generateUUID()
   /** @type {Array<Map<UploadAPI.SliceDigest, UploadAPI.Position>>} */
   const shardIndexes = []
   /** @type {UploadAPI.CARLink[]} */
@@ -77,6 +83,7 @@ while (totalSize < maxBytes) {
   /** @type {UploadAPI.AnyLink?} */
   let root = null
   let uploadSuccess = false
+  let error = ''
 
   try {
     await new BlockStream(source)
@@ -97,8 +104,8 @@ while (totalSize < maxBytes) {
               site = res.site
               const { version, roots, size, slices } = car
               controller.enqueue({ version, roots, size, cid, slices })
-            } catch (/** @type {any} */ err) {
-              error = err.stack ?? err.message ?? String(err)
+            } catch (err) {
+              error = inspect(err)
               throw err
             } finally {
               const url = site ? site.capabilities[0].nb.location[0] : ''
@@ -114,6 +121,7 @@ while (totalSize < maxBytes) {
               await shardLog.append({
                 id: cid.toString(),
                 source: source.id,
+                upload: uploadID,
                 node: site ? site.issuer.did() : '',
                 locationCommitment: site ? site.cid.toString() : '',
                 url,
@@ -141,8 +149,8 @@ while (totalSize < maxBytes) {
                 )
                 // Note: we are not waiting for these tasks to complete
                 tasks = res.site.map(s => s['ucan/await'][1])
-              } catch (/** @type {any} */ err) {
-                error = err.stack ?? err.message ?? String(err)
+              } catch (err) {
+                error = inspect(err)
                 throw err
               } finally {
                 console.log('Replication:')
@@ -158,6 +166,7 @@ while (totalSize < maxBytes) {
                 await replicationLog.append({
                   id: cid.toString(),
                   source: source.id,
+                  upload: uploadID,
                   tasks: tasks.map(t => t.toString()).join('\n'),
                   error,
                   created: new Date().toISOString()
@@ -179,52 +188,71 @@ while (totalSize < maxBytes) {
       )
     uploadSuccess = true
   } catch (err) {
-    console.error(`Error: uploading source: ${source.id}`, err)
+    error = inspect(err)
   }
 
   let indexSuccess = false
-  if (uploadSuccess) {
-    if (!root) throw new Error('missing root CID')
+  /** @type {UploadAPI.CARLink|undefined} */
+  let indexLink
+  try {
+    if (uploadSuccess) {
+      if (!root) throw new Error('missing root CID')
 
-    const indexBytes = await indexShardedDAG(root, shards, shardIndexes)
-
-    if (!indexBytes.ok) {
+      const indexBytes = await indexShardedDAG(root, shards, shardIndexes)
+      if (!indexBytes.ok) {
         throw new Error('failed to archive DAG index', { cause: indexBytes.error })
-    }
-    const indexDigest = await sha256.digest(indexBytes.ok)
-    const indexLink = Link.create(carCode, indexDigest)
-
-    try {
-      await Blob.add(invocationConf, indexDigest, indexBytes.ok, options)
-      await Index.add(invocationConf, indexLink, options)
-      await Upload.add(invocationConf, root, shards, options)
-
-      const end = new Date()
-      await uploadLog.append({
-        // @ts-expect-error
-        id: root.toString(),
-        source: source.id,
-        index: indexLink.toString(),
-        shards: shards.map(s => s.toString()).join('\n'),
-        started: start.toISOString(),
-        ended: end.toISOString()
-      })
-      
-      console.log('Upload:')
-      console.log(`  ${root}`)
-      console.log(`    shards:`)
-      for (const s of shards) {
-        console.log(`      ${s}`)
       }
-      console.log(`    elapsed: ${formatDuration(end.getTime() - start.getTime())}`)
+      const indexDigest = await sha256.digest(indexBytes.ok)
+      indexLink = Link.create(carCode, indexDigest)
+
+      try {
+        await Blob.add(invocationConf, indexDigest, indexBytes.ok, options)
+      } catch (err) {
+        throw new Error(`adding index blob: ${base58btc.encode(indexDigest.bytes)}`, { cause: err })
+      }
+      try {
+        await Index.add(invocationConf, indexLink, options)
+      } catch (err) {
+        throw new Error(`adding index: ${indexLink}`, { cause: err })
+      }
+      try {
+        await Upload.add(invocationConf, root, shards, options)
+      } catch (err) {
+        throw new Error(`adding upload: ${root}`, { cause: err })
+      }
 
       indexSuccess = true
-    } catch (err) {
-      console.error(`Error: uploading index for source: ${source.id}`, err)
     }
+  } catch (err) {
+    error = inspect(err)
+  } finally {
+    const end = new Date()
+    await uploadLog.append({
+      id: uploadID,
+      // @ts-expect-error
+      root: root ? root.toString() : '',
+      source: source.id,
+      upload: uploadID,
+      index: indexLink ? indexLink.toString() : '',
+      shards: shards.map(s => s.toString()).join('\n'),
+      error,
+      started: start.toISOString(),
+      ended: end.toISOString()
+    })
+    
+    console.log('Upload:')
+    console.log(`  ${uploadID}`)
+    console.log(`    root: ${root ?? ''}`)
+    console.log(`    shards:`)
+    for (const s of shards) {
+      console.log(`      ${s}`)
+    }
+    if (error) console.log(`  error: ${error}`)
+    console.log(`  elapsed: ${formatDuration(end.getTime() - start.getTime())}`)
   }
 
   if (uploadSuccess && indexSuccess) {
+    totalSize += source.size
     totalSources++
     totalFiles += source.count
     if (source.type === 'file') {
