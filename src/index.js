@@ -12,7 +12,7 @@ import * as Blob from '@storacha/upload-client/blob'
 import * as Index from '@storacha/upload-client/index'
 import * as Upload from '@storacha/upload-client/upload'
 import { indexShardedDAG } from '@storacha/blob-index'
-import seededRandom from 'seedrandom'
+import seedRandom from 'seedrandom'
 import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, connection, dataDir, replicas } from './config.js'
 import { generateSource, minFileSize } from './gen.js'
 import * as EventLog from './event-log.js'
@@ -60,7 +60,7 @@ while (totalSize < maxBytes) {
 
   const start = new Date()
   const sourceID = generateUUID()
-  const rng = seededRandom(sourceID)
+  const rng = seedRandom(sourceID)
   const source = generateSource({ maxSize, rng })
 
   console.log('Source:')
@@ -107,6 +107,7 @@ while (totalSize < maxBytes) {
               site = res.site
               const { version, roots, size, slices } = car
               controller.enqueue({ version, roots, size, cid, slices })
+              totalSize += size
             } catch (err) {
               error = inspect(err)
               throw err
@@ -210,6 +211,7 @@ while (totalSize < maxBytes) {
 
       try {
         await Blob.add(invocationConf, indexDigest, indexBytes.ok, options)
+        totalSize += indexBytes.ok.length
       } catch (err) {
         throw new Error(`adding index blob: ${base58btc.encode(indexDigest.bytes)}`, { cause: err })
       }
@@ -255,7 +257,6 @@ while (totalSize < maxBytes) {
   }
 
   if (uploadSuccess && indexSuccess) {
-    totalSize += source.size
     totalSources++
     totalFiles += source.count
     if (source.type === 'file') {
