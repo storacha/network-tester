@@ -109,7 +109,7 @@ while (totalSize < maxBytes) {
               controller.enqueue({ version, roots, size, cid, slices })
               totalSize += size
             } catch (err) {
-              error = inspect(err)
+              error = inspect(err, { depth: 50 })
               throw err
             } finally {
               const url = site ? site.capabilities[0].nb.location[0] : ''
@@ -154,7 +154,7 @@ while (totalSize < maxBytes) {
                 // Note: we are not waiting for these tasks to complete
                 tasks = res.site.map(s => s['ucan/await'][1])
               } catch (err) {
-                error = inspect(err)
+                error = inspect(err, { depth: 50 })
                 throw err
               } finally {
                 console.log('Replication:')
@@ -192,7 +192,7 @@ while (totalSize < maxBytes) {
       )
     uploadSuccess = true
   } catch (err) {
-    error = inspect(err)
+    error = inspect(err, { depth: 50 })
   }
 
   let indexSuccess = false
@@ -229,7 +229,7 @@ while (totalSize < maxBytes) {
       indexSuccess = true
     }
   } catch (err) {
-    error = inspect(err)
+    error = inspect(err, { depth: 50 })
   } finally {
     const end = new Date()
     await uploadLog.append({
