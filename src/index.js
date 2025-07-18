@@ -248,6 +248,7 @@ while (totalSize < maxBytes) {
     console.log('Upload:')
     console.log(`  ${uploadID}`)
     console.log(`    root: ${root ?? ''}`)
+    console.log(`    index: ${indexLink ?? ''}`)
     console.log(`    shards:`)
     for (const s of shards) {
       console.log(`      ${s}`)
