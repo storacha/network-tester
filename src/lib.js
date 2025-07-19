@@ -1,10 +1,18 @@
-import randomWord from 'random-word'
+import fs from 'node:fs'
+import wordListPath from 'word-list'
+
+/** @typedef {() => number} RandomNumberGenerator */
 
 /**
  * @param {number} min
  * @param {number} max
+ * @param {object} [options]
+ * @param {RandomNumberGenerator} [options.rng]
  */
-export const randomInt = (min, max) => Math.floor(Math.random() * (max - min) + min)
+export const randomInt = (min, max, options) => {
+  const rng = options?.rng ?? Math.random
+  return Math.floor(rng() * (max - min) + min)
+}
 
 /**
  * Get an integer, skewed towards the minimum.
@@ -13,9 +21,12 @@ export const randomInt = (min, max) => Math.floor(Math.random() * (max - min) + 
  * @param {number} strength
  * @param {number} min
  * @param {number} max
+ * @param {object} [options]
+ * @param {RandomNumberGenerator} [options.rng]
  */
-export const randomSkewedInt = (strength, min, max) => {
-  let randPow = Math.pow(Math.random(), 1 / strength)
+export const randomSkewedInt = (strength, min, max, options) => {
+  const rng = options?.rng ?? Math.random
+  let randPow = Math.pow(rng(), 1 / strength)
   randPow = 1 - randPow
   return Math.floor(randPow * (max - min + 1)) + min
 }
@@ -23,13 +34,20 @@ export const randomSkewedInt = (strength, min, max) => {
 /**
  * @template T
  * @param {T[]} arr
+ * @param {object} [options]
+ * @param {RandomNumberGenerator} [options.rng]
  * @returns {T}
  */
-export const randomChoice = (arr) => arr[randomInt(0, arr.length)]
+export const randomChoice = (arr, options) => arr[randomInt(0, arr.length, options)]
 
+const words = (await fs.promises.readFile(wordListPath, 'utf8')).split('\n')
 const exts = ['gif', 'jpg', 'png', 'json', 'svg', 'html', 'csv', 'mp3', 'txt', 'pdf', 'docx', 'xml', 'woff']
 
-export const randomFileName = () => `${randomWord()}.${randomChoice(exts)}`
+/**
+ * @param {object} [options]
+ * @param {RandomNumberGenerator} [options.rng]
+ */
+export const randomFileName = (options) => `${randomChoice(words, options)}.${randomChoice(exts, options)}`
 
 export const kb = 1024
 export const mb = 1024 * kb
