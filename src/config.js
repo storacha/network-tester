@@ -37,6 +37,12 @@ const stagingWarmConnection = Service.uploadServiceConnection({
   headers
 })
 
+const stagingConnection = Service.uploadServiceConnection({
+  id: DID.parse('did:web:staging.up.storacha.network'),
+  url: new URL('https://staging.up.storacha.network'),
+  headers
+})
+
 const hotConnection = Service.uploadServiceConnection({
   id: DID.parse('did:web:up.storacha.network'),
   url: new URL('https://up.storacha.network'),
@@ -45,7 +51,9 @@ const hotConnection = Service.uploadServiceConnection({
 
 export const connection = process.env.NETWORK === 'staging-warm'
   ? stagingWarmConnection
-  : hotConnection
+  : process.env.NETWORK === 'staging'
+    ? stagingConnection
+    : hotConnection
 
 export const id = Ed25519.parse(process.env.PRIVATE_KEY ?? '')
 
