@@ -225,8 +225,21 @@ func TestRetrieval(t *testing.T) {
 		fmt.Printf("    url: %s\n", indexURL.String())
 
 		for shardDigest, slices := range index.Shards().Iterator() {
-			shardURL, err := extractLocationURL(shardDigest, result)
-			require.NoError(t, err)
+			var shardURL url.URL
+			// only the shard that contains the root will get its location commitment included in the result,
+			// for other shards we will need to query the indexing-service again for that shard
+			if slices.Has(u.Root.Hash()) {
+				shardURL, err = extractLocationURL(shardDigest, result)
+				require.NoError(t, err)
+			} else {
+				shardResult, err := c.QueryClaims(t.Context(), types.Query{
+					Hashes: []multihash.Multihash{shardDigest},
+				})
+				require.NoError(t, err)
+
+				shardURL, err = extractLocationURL(shardDigest, shardResult)
+				require.NoError(t, err)
+			}
 
 			fmt.Println("Shard")
 			fmt.Printf("  z%s\n", shardDigest.B58String())
