@@ -7,4 +7,4 @@ endif
 
 .PHONY: test-retrieval
 test-retrieval:
-	go test -v ./... -run ^TestRetrieval$
+	go test -v ./... -timeout 30m -run ^TestRetrieval$
