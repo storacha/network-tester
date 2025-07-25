@@ -85,6 +85,6 @@ type Retrieval struct {
 	Slice   Multihash `json:"slice"`
 	Started time.Time `json:"started"`
 	Ended   time.Time `json:"ended"`
-	Status  string    `json:"status"`
+	Status  int       `json:"status"`
 	Error   Error     `json:"error"`
 }

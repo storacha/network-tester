@@ -170,7 +170,7 @@ loop:
 					Slice:   model.Multihash{Multihash: sliceDigest},
 					Started: retrieval.Started,
 					Ended:   retrieval.Ended,
-					Status:  fmt.Sprintf("%d", retrieval.Status),
+					Status:  retrieval.Status,
 					Error:   model.Error{Message: retrieval.Error},
 				})
 				if err != nil {

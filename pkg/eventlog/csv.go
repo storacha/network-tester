@@ -20,7 +20,7 @@ func (cw *CSVWriter[T]) Append(item T) error {
 	if err != nil {
 		return fmt.Errorf("marshalling JSON: %w", err)
 	}
-	data := map[string]string{}
+	data := map[string]any{}
 	err = json.Unmarshal(jsonData, &data)
 	if err != nil {
 		return fmt.Errorf("unmarshalling JSON: %w", err)
@@ -38,7 +38,7 @@ func (cw *CSVWriter[T]) Append(item T) error {
 
 	values := make([]string, 0, len(keys))
 	for _, k := range keys {
-		values = append(values, data[k])
+		values = append(values, fmt.Sprintf("%v", data[k]))
 	}
 
 	return cw.writer.Write(values)
@@ -78,7 +78,7 @@ func (cr *CSVReader[T]) Iterator() iter.Seq2[T, error] {
 				continue
 			}
 
-			data := map[string]string{}
+			data := map[string]any{}
 			isRepeatedFields := true
 			for i, k := range fields {
 				if k != record[i] {
