@@ -26,7 +26,7 @@ export const maxShardSize = process.env.NETWORK === 'staging-warm'
   : SHARD_SIZE
 
 /** Number of replicas to ensure (note: includes original) */
-export const replicas = process.env.NETWORK === 'staging-warm' ? 3 : 1
+export const replicas = process.env.REPLICA_COUNT ? parseInt(process.env.REPLICA_COUNT) : (process.env.NETWORK === 'staging-warm' ? 3 : 1)
 
 const headers = { ...Service.defaultHeaders }
 headers['X-Client'] += ' UploadTester/' + Package.version.split('.')[0]
@@ -34,6 +34,12 @@ headers['X-Client'] += ' UploadTester/' + Package.version.split('.')[0]
 const stagingWarmConnection = Service.uploadServiceConnection({
   id: DID.parse('did:web:staging.up.warm.storacha.network'),
   url: new URL('https://staging.up.warm.storacha.network'),
+  headers
+})
+
+const stagingConnection = Service.uploadServiceConnection({
+  id: DID.parse('did:web:staging.up.storacha.network'),
+  url: new URL('https://staging.up.storacha.network'),
   headers
 })
 
@@ -45,7 +51,9 @@ const hotConnection = Service.uploadServiceConnection({
 
 export const connection = process.env.NETWORK === 'staging-warm'
   ? stagingWarmConnection
-  : hotConnection
+  : process.env.NETWORK === 'staging'
+    ? stagingConnection
+    : hotConnection
 
 export const id = Ed25519.parse(process.env.PRIVATE_KEY ?? '')
 

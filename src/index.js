@@ -12,6 +12,7 @@ import * as Blob from '@storacha/upload-client/blob'
 import * as Index from '@storacha/upload-client/index'
 import * as Upload from '@storacha/upload-client/upload'
 import { indexShardedDAG } from '@storacha/blob-index'
+import seedRandom from 'seedrandom'
 import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, connection, dataDir, replicas } from './config.js'
 import { generateSource, minFileSize } from './gen.js'
 import * as EventLog from './event-log.js'
@@ -37,6 +38,10 @@ const [sourceLog, shardLog, replicationLog, uploadLog] = await Promise.all([
   EventLog.create(path.join(dataDir, 'uploads.csv'))
 ])
 
+console.log('Region:')
+console.log(`  ${process.env.REGION ?? 'unknown'}`)
+console.log('Network:')
+console.log(`  ${process.env.NETWORK ?? 'hot'}`)
 console.log('Agent:')
 console.log(`  ${id.did()}`)
 console.log('Space:')
@@ -54,16 +59,18 @@ while (totalSize < maxBytes) {
   if (maxSize < minFileSize) break
 
   const start = new Date()
-  const source = generateSource({ maxSize })
+  const sourceID = generateUUID()
+  const rng = seedRandom(sourceID)
+  const source = generateSource({ maxSize, rng })
 
   console.log('Source:')
-  console.log(`  ${source.id}`)
+  console.log(`  ${sourceID}`)
   console.log('    type:', source.type)
   console.log('    count:', source.count)
   console.log('    size:', formatBytes(source.size))
 
   await sourceLog.append({
-    id: source.id,
+    id: sourceID,
     region,
     type: source.type,
     count: source.count,
@@ -100,8 +107,9 @@ while (totalSize < maxBytes) {
               site = res.site
               const { version, roots, size, slices } = car
               controller.enqueue({ version, roots, size, cid, slices })
+              totalSize += size
             } catch (err) {
-              error = inspect(err)
+              error = inspect(err, { depth: 50 })
               throw err
             } finally {
               const url = site ? site.capabilities[0].nb.location[0] : ''
@@ -116,7 +124,7 @@ while (totalSize < maxBytes) {
 
               await shardLog.append({
                 id: cid.toString(),
-                source: source.id,
+                source: sourceID,
                 upload: uploadID,
                 node: site ? site.issuer.did() : '',
                 locationCommitment: site ? site.cid.toString() : '',
@@ -146,7 +154,7 @@ while (totalSize < maxBytes) {
                 // Note: we are not waiting for these tasks to complete
                 tasks = res.site.map(s => s['ucan/await'][1])
               } catch (err) {
-                error = inspect(err)
+                error = inspect(err, { depth: 50 })
                 throw err
               } finally {
                 console.log('Replication:')
@@ -161,7 +169,7 @@ while (totalSize < maxBytes) {
 
                 await replicationLog.append({
                   id: cid.toString(),
-                  source: source.id,
+                  source: sourceID,
                   upload: uploadID,
                   tasks: tasks.map(t => t.toString()).join('\n'),
                   error,
@@ -184,7 +192,7 @@ while (totalSize < maxBytes) {
       )
     uploadSuccess = true
   } catch (err) {
-    error = inspect(err)
+    error = inspect(err, { depth: 50 })
   }
 
   let indexSuccess = false
@@ -203,6 +211,7 @@ while (totalSize < maxBytes) {
 
       try {
         await Blob.add(invocationConf, indexDigest, indexBytes.ok, options)
+        totalSize += indexBytes.ok.length
       } catch (err) {
         throw new Error(`adding index blob: ${base58btc.encode(indexDigest.bytes)}`, { cause: err })
       }
@@ -220,14 +229,14 @@ while (totalSize < maxBytes) {
       indexSuccess = true
     }
   } catch (err) {
-    error = inspect(err)
+    error = inspect(err, { depth: 50 })
   } finally {
     const end = new Date()
     await uploadLog.append({
       id: uploadID,
       // @ts-expect-error
       root: root ? root.toString() : '',
-      source: source.id,
+      source: sourceID,
       index: indexLink ? indexLink.toString() : '',
       shards: shards.map(s => s.toString()).join('\n'),
       error,
@@ -238,6 +247,7 @@ while (totalSize < maxBytes) {
     console.log('Upload:')
     console.log(`  ${uploadID}`)
     console.log(`    root: ${root ?? ''}`)
+    console.log(`    index: ${indexLink ?? ''}`)
     console.log(`    shards:`)
     for (const s of shards) {
       console.log(`      ${s}`)

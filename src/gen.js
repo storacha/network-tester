@@ -2,7 +2,6 @@ import { Readable } from 'node:stream'
 import { CARWriterStream } from 'carstream'
 import { createDirectoryEncoderStream, createFileEncoderStream } from '@storacha/upload-client/unixfs'
 import randomBytesReadableStream from 'random-bytes-readable-stream'
-import { v4 as generateUUID } from 'uuid'
 import { randomChoice, randomFileName, randomSkewedInt, gb, mb, randomInt } from './lib.js'
 
 /** @import { BlobLike, FileLike, UnixFSEncoderSettingsOptions } from '@storacha/upload-client/types' */
@@ -13,6 +12,7 @@ import { randomChoice, randomFileName, randomSkewedInt, gb, mb, randomInt } from
  *   type?: SourceType
  *   maxSize?: number
  *   unixfsSettings?: UnixFSEncoderSettingsOptions['settings']
+ *   rng?: import('./lib.js').RandomNumberGenerator
  * }} Options
  */
 
@@ -45,7 +45,7 @@ export const generateSource = (options) => {
       // if less than the minimum sharded directory size, choose a file
       type = 'file'
     } else {
-      type = randomChoice(weightedTypes)
+      type = randomChoice(weightedTypes, options)
     }
   }
 
@@ -68,11 +68,10 @@ const generateFile = (options) => {
     throw new Error(`min file size (${minFileSize} bytes) is greater than max (${maxSize} bytes)`)
   }
   const totalSize = maxSize < (50 * mb)
-    ? randomInt(minFileSize, maxSize)
-    : randomSkewedInt(3, minFileSize, maxSize)
+    ? randomInt(minFileSize, maxSize, options)
+    : randomSkewedInt(3, minFileSize, maxSize, options)
 
   return {
-    id: generateUUID(),
     type: FileSource,
     size: totalSize,
     count: 1,
@@ -93,16 +92,16 @@ const generateDirectory = (options) => {
     throw new Error(`min file size (${minFileSize} bytes) is greater than max (${maxSize} bytes)`)
   }
   const totalSize = maxSize < (50 * mb)
-    ? randomInt(minFileSize, maxSize)
-    : randomSkewedInt(3, minFileSize, maxSize)
+    ? randomInt(minFileSize, maxSize, options)
+    : randomSkewedInt(3, minFileSize, maxSize, options)
 
   let currentSize = 0
   const files = /** @type {FileLike[]} */ ([])
   for (let i = 0; i < 1000; i++) {
-    const name = randomFileName()
+    const name = randomFileName(options)
     const size = i === 999
       ? totalSize - currentSize
-      : randomSkewedInt(3, minFileSize, totalSize - currentSize)
+      : randomSkewedInt(3, minFileSize, totalSize - currentSize, options)
     const stream = () => Readable.toWeb(randomBytesReadableStream({ size }))
     files.push(/** @type {FileLike} */ ({ name, size, stream }))
     currentSize += size
@@ -112,7 +111,6 @@ const generateDirectory = (options) => {
   }
 
   return {
-    id: generateUUID(),
     type: DirectorySource,
     size: totalSize,
     count: files.length,
@@ -132,13 +130,13 @@ const generateShardedDirectory = (options) => {
     throw new Error(`unable to fit >1,000 files of ${minFileSize} bytes into max (${maxSize} bytes)`)
   }
   const totalSize = maxSize < (50 * mb)
-    ? randomInt(1000 * minFileSize, maxSize)
-    : randomSkewedInt(3, 1000 * minFileSize, maxSize)
+    ? randomInt(1000 * minFileSize, maxSize, options)
+    : randomSkewedInt(3, 1000 * minFileSize, maxSize, options)
 
   let currentSize = 0
   const files = /** @type {FileLike[]} */ ([])
   for (let i = 0; i < 1000; i++) {
-    const name = randomFileName()
+    const name = randomFileName(options)
     const size = minFileSize
     const stream = () => Readable.toWeb(randomBytesReadableStream({ size }))
     files.push(/** @type {FileLike} */ ({ name, size, stream }))
@@ -146,15 +144,14 @@ const generateShardedDirectory = (options) => {
   }
 
   while (currentSize < totalSize) {
-    const name = randomFileName()
-    const size = randomSkewedInt(3, minFileSize, totalSize - currentSize)
+    const name = randomFileName(options)
+    const size = randomSkewedInt(3, minFileSize, totalSize - currentSize, options)
     const stream = () => Readable.toWeb(randomBytesReadableStream({ size }))
     files.push(/** @type {FileLike} */ ({ name, size, stream }))
     currentSize += size
   }
 
   return {
-    id: generateUUID(),
     type: ShardedDirectorySource,
     size: totalSize,
     count: files.length,
