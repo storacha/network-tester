@@ -237,7 +237,6 @@ while (totalSize < maxBytes) {
       // @ts-expect-error
       root: root ? root.toString() : '',
       source: sourceID,
-      upload: uploadID,
       index: indexLink ? indexLink.toString() : '',
       shards: shards.map(s => s.toString()).join('\n'),
       error,
