@@ -257,7 +257,6 @@ while (totalSize < maxBytes) {
   }
 
   if (uploadSuccess && indexSuccess) {
-    totalSize += source.size
     totalSources++
     totalFiles += source.count
     if (source.type === 'file') {
