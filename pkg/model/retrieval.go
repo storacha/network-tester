@@ -83,6 +83,7 @@ type Retrieval struct {
 	Node    DID       `json:"node"`
 	Shard   Multihash `json:"shard"`
 	Slice   Multihash `json:"slice"`
+	Size    int       `json:"size"`
 	Started time.Time `json:"started"`
 	Ended   time.Time `json:"ended"`
 	Status  int       `json:"status"`
