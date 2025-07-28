@@ -8,6 +8,7 @@ import (
 	"iter"
 	"maps"
 	"slices"
+	"strconv"
 )
 
 type CSVWriter[T any] struct {
@@ -38,7 +39,11 @@ func (cw *CSVWriter[T]) Append(item T) error {
 
 	values := make([]string, 0, len(keys))
 	for _, k := range keys {
-		values = append(values, fmt.Sprintf("%v", data[k]))
+		if num, ok := data[k].(float64); ok {
+			values = append(values, fmt.Sprintf("%d", int(num)))
+		} else {
+			values = append(values, fmt.Sprintf("%s", data[k]))
+		}
 	}
 
 	return cw.writer.Write(values)
@@ -84,7 +89,11 @@ func (cr *CSVReader[T]) Iterator() iter.Seq2[T, error] {
 				if k != record[i] {
 					isRepeatedFields = false
 				}
-				data[k] = record[i]
+				if num, err := strconv.Atoi(record[i]); err == nil {
+					data[k] = num
+				} else {
+					data[k] = record[i]
+				}
 			}
 			if isRepeatedFields {
 				continue
