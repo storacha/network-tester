@@ -168,6 +168,7 @@ loop:
 					Node:    model.DID{DID: shardLocationCommitment.Issuer().DID()},
 					Shard:   model.Multihash{Multihash: shardDigest},
 					Slice:   model.Multihash{Multihash: sliceDigest},
+					Size:    int(position.Length),
 					Started: retrieval.Started,
 					Ended:   retrieval.Ended,
 					Status:  retrieval.Status,
