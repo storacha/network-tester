@@ -45,6 +45,7 @@ require (
 	github.com/ipld/go-codec-dagpb v1.6.0 // indirect
 	github.com/ipni/go-libipni v0.6.16 // indirect
 	github.com/jbenet/goprocess v0.1.4 // indirect
+	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-libp2p v0.39.1 // indirect
