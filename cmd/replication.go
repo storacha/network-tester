@@ -38,7 +38,7 @@ var replicationCmd = &cobra.Command{
 		indexer, err := isc.New(config.IndexingServicePrincipal, *config.IndexingServiceURL)
 		cobra.CheckErr(err)
 
-		receipts := grc.New(config.UploadServiceURL)
+		receipts := grc.New(config.UploadServiceURL.JoinPath("receipt"))
 
 		runner, err := runner.NewReplicationTestRunner(runner.ReplicationTestConfig{
 			Region:            config.Region,
