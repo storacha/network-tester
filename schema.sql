@@ -45,18 +45,19 @@ CREATE TABLE upload_tester.shards (
 CREATE SCHEMA IF NOT EXISTS retrieval_tester;
 
 CREATE TABLE retrieval_tester.retrievals (
-  ended   TIMESTAMP,
-  error   TEXT,
-  id      UUID PRIMARY KEY,
-  node    TEXT,
-  region  TEXT,
-  shard   TEXT,
-  size    INTEGER,
-  slice   TEXT,
-  source  UUID,
-  started TIMESTAMP,
-  status  INTEGER,
-  upload  UUID
+  ended     TIMESTAMP,
+  error     TEXT,
+  id        UUID PRIMARY KEY,
+  node      TEXT,
+  region    TEXT,
+  responded TIMESTAMP,
+  shard     TEXT,
+  size      INTEGER,
+  slice     TEXT,
+  source    UUID,
+  started   TIMESTAMP,
+  status    INTEGER,
+  upload    UUID
 );
 
 
