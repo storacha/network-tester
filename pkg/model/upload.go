@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/ipld/go-ipld-prime"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 )
 
@@ -40,6 +41,13 @@ func (l *Link) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+func ToLink(link ipld.Link) Link {
+	if link == nil {
+		return Link{}
+	}
+	return Link{cidlink.Link{Cid: cid.MustParse(link.String())}}
+}
+
 type LinkList []Link
 
 func (ll LinkList) MarshalJSON() ([]byte, error) {
@@ -70,6 +78,14 @@ func (ll *LinkList) UnmarshalJSON(b []byte) error {
 	}
 	*ll = links
 	return nil
+}
+
+func ToLinkList(links []ipld.Link) LinkList {
+	list := make(LinkList, 0, len(links))
+	for _, l := range links {
+		list = append(list, ToLink(l))
+	}
+	return list
 }
 
 type Error struct {

@@ -24,7 +24,6 @@ The script generates event logs to the following files:
 
 * `data/source.csv` - information about the randomly generated source data. Each source has an ID that is referenced in other event logs.
 * `data/shards.csv` - information about each shard that is stored to the service as part of an "upload".
-* `data/replications.csv` - information about replication tasks requested for a given shard.
 * `data/uploads.csv` - information about each upload that is performed, i.e. the shards and the DAG root CID.
 
 ### Retrieval Testing
@@ -36,6 +35,17 @@ The script generates event logs to the following files:
 The script generates event logs to the following files:
 
 * `data/retrieval.csv` - .
+
+### Replication Testing
+
+1. Run the upload tests
+2. Install Go
+3. Start the test using `go run . replication ./data/shards.csv ./data/replications.csv ./data/transfers.csv`
+
+The script generates event logs to the following files:
+
+* `data/replications.csv` - information about replication tasks requested for a given shard.
+* `data/transfers.csv` - tracking of transfers for replicas.
 
 ## About
 
@@ -64,13 +74,6 @@ We collect information about the data sources created, the shards that are trans
     * Error details
     * Transfer started at
     * Transfer ended at
-* Replication
-    * ID (shard CID)
-    * Source ID
-    * Upload ID
-    * Replication task CIDs
-    * Error details
-    * Created at
 * Upload
     * ID (random UUID)
     * DAG root CID
@@ -106,3 +109,26 @@ The following data is collected for each retrieval request:
     * Retrieval end time
     * HTTP status code
     * Error details (if applicable)
+
+The replication tests use the output of the upload tests (specifically `shards.csv`) to request replications for successfully uploaded shards. The script simply makes a `space/blob/replicate` invocation to the upload service and waits for the transfer tasks to complete (or fail/timeout) by polling the upload service receipts endpoint.
+
+Since the replication tests are performed after the upload tests the location commitment needed for the `space/blob/replicate` invocation needs to be retrieved from the storage node that issued it. We indirectly do this by querying the indexing service.
+
+* Replication
+    * ID (random UUID)
+    * Region
+    * Shard ID (shard CID)
+    * Cause invocation CID (`space/blob/replicate` invocation)
+    * Requested replicas
+    * Replication transfer task CIDs
+    * Request time
+    * Error details
+* Replica Transfer
+    * ID (transfer task CID)
+    * Replication ID
+    * DID of the node performing the replication
+    * Location commitment CID
+    * URL from the location commitment
+    * Transfer start time (approx)
+    * Transfer end time (approx)
+    * Error details
