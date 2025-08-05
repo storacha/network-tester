@@ -136,6 +136,7 @@ func (r *ReplicationTestRunner) Run(ctx context.Context) error {
 
 type replication struct {
 	id        uuid.UUID
+	region    string
 	shard     ipld.Link
 	cause     ipld.Link
 	replicas  int
@@ -146,6 +147,7 @@ type replication struct {
 func (r replication) ToModel(err error) model.Replication {
 	m := model.Replication{
 		ID:        r.id,
+		Region:    r.region,
 		Shard:     model.ToLink(r.shard),
 		Cause:     model.ToLink(r.cause),
 		Replicas:  r.replicas,
@@ -159,7 +161,7 @@ func (r replication) ToModel(err error) model.Replication {
 }
 
 func (r *ReplicationTestRunner) requestReplicate(ctx context.Context, shard model.Shard) (replication, error) {
-	repl := replication{id: uuid.New(), shard: shard.ID.Link}
+	repl := replication{id: uuid.New(), region: r.region, shard: shard.ID.Link}
 
 	// First, obtain the location commitment we need in the replicate invocation.
 	//

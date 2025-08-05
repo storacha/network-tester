@@ -13,7 +13,7 @@ import * as Index from '@storacha/upload-client/index'
 import * as Upload from '@storacha/upload-client/upload'
 import { indexShardedDAG } from '@storacha/blob-index'
 import seedRandom from 'seedrandom'
-import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, connection, dataDir, replicas } from './config.js'
+import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, connection, dataDir } from './config.js'
 import { generateSource, minFileSize } from './gen.js'
 import * as EventLog from './event-log.js'
 
@@ -31,10 +31,9 @@ const invocationConf = {
 }
 const options = { connection }
 
-const [sourceLog, shardLog, replicationLog, uploadLog] = await Promise.all([
+const [sourceLog, shardLog, uploadLog] = await Promise.all([
   EventLog.create(path.join(dataDir, 'sources.csv')),
   EventLog.create(path.join(dataDir, 'shards.csv')),
-  EventLog.create(path.join(dataDir, 'replications.csv')),
   EventLog.create(path.join(dataDir, 'uploads.csv'))
 ])
 
@@ -134,48 +133,6 @@ while (totalSize < maxBytes) {
                 started: start.toISOString(),
                 ended: end.toISOString()
               })
-            }
-
-            // If we sucessfully received a location commitment, and the number
-            // of wanted replicas is more than 1, then ask for replicas to be
-            // made.
-            if (site && replicas > 1) {
-              let error = ''
-              /** @type {API.UnknownLink[]} */
-              let tasks = []
-              try {
-                const res = await Blob.replicate(
-                  invocationConf,
-                  { digest, size: car.size },
-                  site,
-                  replicas,
-                  options
-                )
-                // Note: we are not waiting for these tasks to complete
-                tasks = res.site.map(s => s['ucan/await'][1])
-              } catch (err) {
-                error = inspect(err, { depth: 50 })
-                throw err
-              } finally {
-                console.log('Replication:')
-                console.log(`  ${cid}`)
-                if (tasks.length) {
-                  console.log('    tasks:')
-                  for (const t of tasks) {
-                    console.log(`      ${t}`)
-                  }
-                }
-                if (error) console.log(`    error: ${error}`)
-
-                await replicationLog.append({
-                  id: cid.toString(),
-                  source: sourceID,
-                  upload: uploadID,
-                  tasks: tasks.map(t => t.toString()).join('\n'),
-                  error,
-                  created: new Date().toISOString()
-                })
-              }
             }
           }
         })))
