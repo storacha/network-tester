@@ -1,4 +1,4 @@
--- A SQL schema that you can import network tester CSV into for data mining.
+-- A PostgreSQL schema that you can import network tester CSV into for data mining.
 
 -- You can import CSV data like so:
 -- COPY upload_tester.uploads FROM '/Users/alice/results/uploads.csv' WITH (FORMAT CSV, HEADER);
