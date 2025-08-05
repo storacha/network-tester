@@ -4,6 +4,8 @@ Test uploads and more to the Storacha Network.
 
 ## Getting started
 
+### Upload Testing
+
 1. Install Node.js
 2. Clone the repo and cd into it
 3. Install project dependencies `npm install`
@@ -25,13 +27,23 @@ The script generates event logs to the following files:
 * `data/replications.csv` - information about replication tasks requested for a given shard.
 * `data/uploads.csv` - information about each upload that is performed, i.e. the shards and the DAG root CID.
 
+### Retrieval Testing
+
+1. Run the upload tests
+2. Install Go
+3. Start the test using `go run . ./data/uploads.csv >> ./data/retrievals.csv`
+
+The script generates event logs to the following files:
+
+* `data/retrieval.csv` - .
+
 ## About
 
 The upload tests aim to upload a configured number of bytes to the service (default 100 GiB). The data is sent as many randomly sized uploads in order to simulate typical upload patterns. Additionally within a given upload, data is sharded - per the usual upload flow. All these values are configurable.
 
 For a given upload the script will generate either a single file, directory of files or a sharded diretory of files of varying sizes. The maximum size of a single upload can also be configured , but is set by default to 4 GiB.
 
-All configuration values can be found in [config.js](./src/config.js).
+All configuration values for upload tests can be found in [config.js](./src/config.js).
 
 We collect information about the data sources created, the shards that are transferred, replications requested and the uploads that are registered:
 
@@ -68,3 +80,29 @@ We collect information about the data sources created, the shards that are trans
     * Error details
     * Upload started at
     * Upload ended at (including all shards, index and `upload/add` registration)
+
+The retrieval tests use the output of the upload tests (specifically `uploads.csv`) to test data retrieval in a fasion similar to how the Storacha gateway operates.
+
+Uploads are filtered so that only successful uploads are tested. The test script aims to extract every *block* of a DAG from storage nodes using HTTP byte range requests (HTTP GET requests using the `Range` header).
+
+The script queries the indexing service using the DAG root as the query parameter.
+
+The index is fetched directly from the node hosting the data using the location commitment returned in the results from the indexing service. Then the test will determine the location of each shard either by consulting the original query result or by making an additional query to the indexing service.
+
+After the location of each shard is determined the test script uses the index to iterate over all the *slices* in each shard, making HTTP Range requests to extract the data. Content integrity is also verified.
+
+The following data is collected for each retrieval request:
+
+* Retrieval
+    * ID (random UUID)
+    * Region
+    * Source ID
+    * Upload ID
+    * Node DID
+    * Shard digest
+    * Slice digest
+    * Retrieval start time
+    * Response start time (i.e. TTFB)
+    * Retrieval end time
+    * HTTP status code
+    * Error details (if applicable)
