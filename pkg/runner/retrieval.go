@@ -161,18 +161,19 @@ loop:
 				log.Infof("      z%s @ %d-%d", sliceDigest.B58String(), position.Offset, position.Offset+position.Length-1)
 
 				err = r.results.Append(model.Retrieval{
-					ID:      uuid.New(),
-					Region:  r.region,
-					Source:  u.Source,
-					Upload:  u.ID,
-					Node:    model.DID{DID: shardLocationCommitment.Issuer().DID()},
-					Shard:   model.Multihash{Multihash: shardDigest},
-					Slice:   model.Multihash{Multihash: sliceDigest},
-					Size:    int(position.Length),
-					Started: retrieval.Started,
-					Ended:   retrieval.Ended,
-					Status:  retrieval.Status,
-					Error:   model.Error{Message: retrieval.Error},
+					ID:        uuid.New(),
+					Region:    r.region,
+					Source:    u.Source,
+					Upload:    u.ID,
+					Node:      model.DID{DID: shardLocationCommitment.Issuer().DID()},
+					Shard:     model.Multihash{Multihash: shardDigest},
+					Slice:     model.Multihash{Multihash: sliceDigest},
+					Size:      int(position.Length),
+					Started:   retrieval.Started,
+					Responded: retrieval.Responded,
+					Ended:     retrieval.Ended,
+					Status:    retrieval.Status,
+					Error:     model.Error{Message: retrieval.Error},
 				})
 				if err != nil {
 					return err
@@ -187,18 +188,19 @@ loop:
 }
 
 type sliceRetrieval struct {
-	Started time.Time
-	Ended   time.Time
-	Status  int
-	Error   string
+	Started   time.Time
+	Responded time.Time
+	Ended     time.Time
+	Status    int
+	Error     string
 }
 
 func testRetrieveSlice(slice mh.Multihash, url url.URL, position blobindex.Position) sliceRetrieval {
-	start := time.Now()
+	started := time.Now()
 	req, err := http.NewRequest(http.MethodGet, url.String(), nil)
 	if err != nil {
 		return sliceRetrieval{
-			Started: start,
+			Started: started,
 			Ended:   time.Now(),
 			Error:   fmt.Errorf("creating slice request to: %s for slice: z%s: %w", url.String(), slice.B58String(), err).Error(),
 		}
@@ -207,42 +209,47 @@ func testRetrieveSlice(slice mh.Multihash, url url.URL, position blobindex.Posit
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sliceRetrieval{
-			Started: start,
+			Started: started,
 			Ended:   time.Now(),
 			Status:  res.StatusCode,
 			Error:   fmt.Errorf("sending slice request to: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
 		}
 	}
+	responded := time.Now()
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return sliceRetrieval{
-			Started: start,
-			Ended:   time.Now(),
-			Status:  res.StatusCode,
-			Error:   fmt.Errorf("reading slice response: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
+			Started:   started,
+			Responded: responded,
+			Ended:     time.Now(),
+			Status:    res.StatusCode,
+			Error:     fmt.Errorf("reading slice response: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
 		}
 	}
 	dataDigest, err := mh.Sum(data, mh.SHA2_256, -1)
 	if err != nil {
 		return sliceRetrieval{
-			Started: start,
-			Ended:   time.Now(),
-			Status:  res.StatusCode,
-			Error:   fmt.Errorf("hashing slice response: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
+			Started:   started,
+			Responded: responded,
+			Ended:     time.Now(),
+			Status:    res.StatusCode,
+			Error:     fmt.Errorf("hashing slice response: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
 		}
 	}
 	if !bytes.Equal(slice, dataDigest) {
 		return sliceRetrieval{
-			Started: start,
-			Ended:   time.Now(),
-			Status:  res.StatusCode,
-			Error:   fmt.Errorf("hash integrity failure: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
+			Started:   started,
+			Responded: responded,
+			Ended:     time.Now(),
+			Status:    res.StatusCode,
+			Error:     fmt.Errorf("hash integrity failure: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
 		}
 	}
 	return sliceRetrieval{
-		Started: start,
-		Ended:   time.Now(),
-		Status:  res.StatusCode,
+		Started:   started,
+		Responded: responded,
+		Ended:     time.Now(),
+		Status:    res.StatusCode,
 	}
 }
 
