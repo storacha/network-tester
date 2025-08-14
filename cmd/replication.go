@@ -47,6 +47,7 @@ var replicationCmd = &cobra.Command{
 			Indexer:           indexer,
 			ServiceConnection: config.UploadServiceConnection,
 			ServiceReceipts:   receipts,
+			Replicas:          config.Replicas,
 		}, shards, replications, transfers)
 		cobra.CheckErr(err)
 

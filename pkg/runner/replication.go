@@ -54,7 +54,7 @@ func (r *ReplicationTestRunner) Run(ctx context.Context) error {
 	log.Info("Space")
 	log.Infof("  %s", r.space)
 	log.Info("Replicas")
-	log.Infof("  %s", r.replicas)
+	log.Infof("  %d", r.replicas)
 
 	for s, err := range r.shards.Iterator() {
 		if err != nil {

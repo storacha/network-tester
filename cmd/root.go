@@ -5,6 +5,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
+	"github.com/storacha/network-tester/pkg/config"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -26,6 +27,7 @@ to quickly create a Cobra application.`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	_ = godotenv.Load()
+	config.Load()
 
 	err := rootCmd.Execute()
 	if err != nil {

@@ -26,7 +26,7 @@ var UploadServiceConnection client.Connection
 // The value is inclusive of the original upload.
 var Replicas int
 
-func init() {
+func Load() {
 	switch os.Getenv("NETWORK") {
 	case "", "hot":
 		IndexingServicePrincipal = Must(did.Parse("did:web:indexer.storacha.network"))
