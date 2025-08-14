@@ -198,6 +198,7 @@ func (r *ReplicationTestRunner) requestReplicate(ctx context.Context, shard mode
 			Replicas: uint(r.replicas),
 			Site:     lcomm.Link(),
 		},
+		delegation.WithProof(delegation.FromDelegation(r.proof)),
 	)
 	if err != nil {
 		return repl, err
