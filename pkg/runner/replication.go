@@ -208,7 +208,7 @@ func (r *ReplicationTestRunner) requestReplicate(ctx context.Context, shard mode
 			return repl, err
 		}
 		if err = inv.Attach(b); err != nil {
-			return repl, fmt.Errorf("attaching location commitment to replcate invocation: %w", err)
+			return repl, fmt.Errorf("attaching location commitment to replicate invocation: %w", err)
 		}
 	}
 
