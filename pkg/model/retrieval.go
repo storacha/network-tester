@@ -76,16 +76,17 @@ func (id *DID) UnmarshalJSON(b []byte) error {
 }
 
 type Retrieval struct {
-	ID      uuid.UUID `json:"id"`
-	Region  string    `json:"region"`
-	Source  uuid.UUID `json:"source"`
-	Upload  uuid.UUID `json:"upload"`
-	Node    DID       `json:"node"`
-	Shard   Multihash `json:"shard"`
-	Slice   Multihash `json:"slice"`
-	Size    int       `json:"size"`
-	Started time.Time `json:"started"`
-	Ended   time.Time `json:"ended"`
-	Status  int       `json:"status"`
-	Error   Error     `json:"error"`
+	ID        uuid.UUID `json:"id"`
+	Region    string    `json:"region"`
+	Source    uuid.UUID `json:"source"`
+	Upload    uuid.UUID `json:"upload"`
+	Node      DID       `json:"node"`
+	Shard     Multihash `json:"shard"`
+	Slice     Multihash `json:"slice"`
+	Size      int       `json:"size"`
+	Started   time.Time `json:"started"`
+	Responded time.Time `json:"responded"`
+	Ended     time.Time `json:"ended"`
+	Status    int       `json:"status"`
+	Error     Error     `json:"error"`
 }
