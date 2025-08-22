@@ -14,18 +14,18 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-ipld-prime"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/storacha/go-capabilities/pkg/assert"
+	"github.com/storacha/go-libstoracha/blobindex"
+	"github.com/storacha/go-libstoracha/capabilities/assert"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/ucan"
-	"github.com/storacha/indexing-service/pkg/blobindex"
 	"github.com/storacha/indexing-service/pkg/client"
 	"github.com/storacha/indexing-service/pkg/types"
 	"github.com/storacha/network-tester/pkg/eventlog"
 	"github.com/storacha/network-tester/pkg/model"
 )
 
-var log = logging.Logger("retrieval")
+var log = logging.Logger("runner")
 
 type RetrievalTestRunner struct {
 	region  string
@@ -35,6 +35,9 @@ type RetrievalTestRunner struct {
 }
 
 func (r *RetrievalTestRunner) Run(ctx context.Context) error {
+	log.Info("Region")
+	log.Infof("  %s", r.region)
+
 loop:
 	for u, err := range r.uploads.Iterator() {
 		if err != nil {
