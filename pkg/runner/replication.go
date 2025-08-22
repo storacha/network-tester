@@ -283,7 +283,6 @@ func (t replicaTransfer) ToModel(err error) model.ReplicaTransfer {
 		Replication:        t.replication,
 		LocationCommitment: model.ToLink(t.locationCommitment),
 		Node:               model.DID{DID: t.node},
-		URL:                model.URL(*t.url),
 		Started:            t.started,
 		Ended:              t.ended,
 	}
