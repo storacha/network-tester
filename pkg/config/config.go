@@ -16,7 +16,7 @@ import (
 
 var IndexingServicePrincipal did.DID
 var IndexingServiceURL *url.URL
-var Region = os.Getenv("REGION")
+var Region string
 
 var UploadServicePrincipal did.DID
 var UploadServiceURL *url.URL
@@ -57,6 +57,7 @@ func Load() {
 	channel := http.NewHTTPChannel(UploadServiceURL)
 	UploadServiceConnection = Must(client.NewConnection(UploadServicePrincipal, channel))
 
+	Region = os.Getenv("REGION")
 	if Region == "" {
 		Region = "unknown"
 	}
