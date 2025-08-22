@@ -238,7 +238,14 @@ func (r *ReplicationTestRunner) requestReplicate(ctx context.Context, shard mode
 		if err != nil {
 			return repl, err
 		}
-		return repl, fmt.Errorf("invocation failure: %+v", f)
+		msg := f.Message
+		if f.Name != nil {
+			msg = fmt.Sprintf("%s: %s", *f.Name, msg)
+		}
+		if f.Stack != nil {
+			msg = fmt.Sprintf("%s\n%s", msg, *f.Stack)
+		}
+		return repl, fmt.Errorf("invocation failure: %s", msg)
 	}
 
 	var transfers []ipld.Link
