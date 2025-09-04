@@ -7,7 +7,7 @@ import * as Ed25519 from '@storacha/client/principal/ed25519'
 import { SHARD_SIZE } from '@storacha/upload-client/sharding'
 import * as DID from '@ipld/dag-ucan/did'
 import Package from '../package.json' with { type: 'json' }
-import { gb, mb } from './lib.js'
+import { gb } from './lib.js'
 
 dotenv.config()
 
@@ -18,7 +18,7 @@ export const region = process.env.REGION || 'unknown'
 export const maxBytes = 100 * gb
 
 /** Maximum bytes for a single upload. */
-export const maxPerUploadBytes = 1 * mb
+export const maxPerUploadBytes = 1 * gb
 
 /** Maximum CAR shard size. */
 export const maxShardSize = process.env.NETWORK === 'staging-warm'
