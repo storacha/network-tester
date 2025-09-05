@@ -15,10 +15,14 @@ dotenv.config()
 export const region = process.env.REGION || 'unknown'
 
 /** Maximum number of bytes to generate/store across all uploads. */
-export const maxBytes = 100 * gb
+export const maxBytes = process.env.MAX_BYTES
+  ? parseInt(process.env.MAX_BYTES)
+  : 100 * gb
 
 /** Maximum bytes for a single upload. */
-export const maxPerUploadBytes = 1 * gb
+export const maxPerUploadBytes = process.env.MAX_PER_UPLOAD_BYTES
+  ? parseInt(process.env.MAX_PER_UPLOAD_BYTES)
+  : 1 * gb
 
 /** Maximum CAR shard size. */
 export const maxShardSize = process.env.NETWORK === 'staging-warm'

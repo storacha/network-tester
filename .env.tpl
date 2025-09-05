@@ -5,3 +5,9 @@ PROOF=
 REGION=
 # Optional - the network to test (hot/staging-warm/staging/...), defaults to "hot".
 NETWORK=
+
+# Upload Test Overrides
+# Optional - maximum number of bytes to upload in total, default 100GB
+MAX_BYTES=
+# Optional - maximum number of bytes for a single upload, default 1GB
+MAX_PER_UPLOAD_BYTES=
