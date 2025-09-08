@@ -5,6 +5,8 @@
 -- COPY upload_tester.sources FROM '/Users/alice/results/sources.csv' WITH (FORMAT CSV, HEADER);
 -- COPY upload_tester.shards FROM '/Users/alice/results/shards.csv' WITH (FORMAT CSV, HEADER);
 -- COPY retrieval_tester.retrievals FROM '/Users/alice/results/retrievals.csv' WITH (FORMAT CSV, HEADER);
+-- COPY replication_tester.replications FROM '/Users/alice/results/replications.csv' WITH (FORMAT CSV, HEADER);
+-- COPY replication_tester.transfers FROM '/Users/alice/results/transfers.csv' WITH (FORMAT CSV, HEADER);
 
 CREATE SCHEMA IF NOT EXISTS upload_tester;
 
@@ -33,7 +35,7 @@ CREATE TABLE upload_tester.shards (
   ended               TIMESTAMP,
   error               TEXT,
   id                  TEXT PRIMARY KEY,
-  locationCommitment TEXT,
+  locationCommitment  TEXT,
   node                TEXT,
   size                BIGINT,
   source              UUID,
@@ -60,4 +62,27 @@ CREATE TABLE retrieval_tester.retrievals (
   upload    UUID
 );
 
+CREATE SCHEMA IF NOT EXISTS replication_tester;
+
+CREATE TABLE replication_tester.replications (
+  cause     TEXT,
+  error     TEXT,
+  id        UUID PRIMARY KEY,
+  region    TEXT,
+  replicas  INT,
+  requested TIMESTAMP,
+  shard     TEXT,
+  transfers TEXT
+);
+
+CREATE TABLE replication_tester.transfers (
+  ended              TIMESTAMP,
+  error              TEXT,
+  id                 TEXT PRIMARY KEY,
+  locationCommitment TEXT,
+  node               TEXT,
+  replication        UUID,
+  started            TIMESTAMP,
+  url                TEXT
+);
 
