@@ -105,6 +105,7 @@ func (r *ReplicationTestRunner) Run(ctx context.Context) error {
 		}
 
 		var wg sync.WaitGroup
+		var mutex sync.Mutex
 		for _, task := range repl.transfers {
 			wg.Add(1)
 			go func() {
@@ -122,7 +123,9 @@ func (r *ReplicationTestRunner) Run(ctx context.Context) error {
 				if err != nil {
 					log.Infof("    error: %s", err.Error())
 				}
+				mutex.Lock()
 				r.transfers.Append(transfer.ToModel(err))
+				mutex.Unlock()
 				wg.Done()
 			}()
 		}
