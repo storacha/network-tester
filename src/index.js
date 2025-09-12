@@ -5,6 +5,7 @@ import formatDuration from 'humanize-duration'
 import * as Link from 'multiformats/link'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { base58btc } from 'multiformats/bases/base58'
+import * as Digest from 'multiformats/hashes/digest'
 import { v4 as generateUUID } from 'uuid'
 import { BlockStream, code as carCode } from '@storacha/upload-client/car'
 import { ShardingStream } from '@storacha/upload-client/sharding'
@@ -22,6 +23,10 @@ import * as EventLog from './event-log.js'
  * @import * as UploadAPI from '@storacha/upload-client/types'
  * @import * as IndexerAPI from '@storacha/indexing-service-client/api'
  */
+
+/** @param {Uint8Array} bytes */
+const isSubArray = (bytes) =>
+  bytes.byteOffset !== 0 || bytes.buffer.byteLength !== bytes.byteLength
 
 const invocationConf = {
   issuer: id,
@@ -141,6 +146,15 @@ while (totalSize < maxBytes) {
           write(meta) {
             root = root || meta.roots[0]
             shards.push(meta.cid)
+            // Make copies of digests that are views on bigger byte arrays. This
+            // prevents memory leak where the bytes for the rest of the CAR cannot
+            // be released because the digest is a view over just a small portion
+            // of the chunk.
+            for (const [s, p] of meta.slices) {
+              if (isSubArray(s.bytes)) {
+                meta.slices.set(Digest.decode(s.bytes.slice()), p)
+              }
+            }
             // add the CAR shard itself to the slices
             meta.slices.set(meta.cid.multihash, [0, meta.size])
             shardIndexes.push(meta.slices)
