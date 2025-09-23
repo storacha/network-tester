@@ -56,46 +56,7 @@ loop:
 		log.Infof("    started: %s", u.Started.Format(time.DateTime))
 		log.Infof("    ended: %s", u.Ended.Format(time.DateTime))
 
-		result, index, err := func() (types.QueryResult, blobindex.ShardedDagIndexView, error) {
-			result, err := r.indexer.QueryClaims(ctx, types.Query{
-				Hashes: []mh.Multihash{u.Root.Hash()},
-			})
-			if err != nil {
-				return nil, nil, fmt.Errorf("querying claims for: %s: %w", u.Root.String(), err)
-			}
-			if len(result.Indexes()) == 0 {
-				return nil, nil, fmt.Errorf("no results for root CID: %s", u.Root)
-			}
-			if !slices.ContainsFunc(result.Indexes(), func(l ipld.Link) bool {
-				return l.String() == u.Index.String()
-			}) {
-				return nil, nil, fmt.Errorf("index not found in query results: %s", u.Index)
-			}
-			indexURL, _, err := extractLocation(u.Index.Hash(), result)
-			if err != nil {
-				return nil, nil, fmt.Errorf("extracting location URL for: z%s from result for root: %s: %w", u.Index.Hash().B58String(), u.Root, err)
-			}
-			res, err := http.Get(indexURL.String())
-			if err != nil {
-				return nil, nil, fmt.Errorf("getting index: z%s from URL: %s: %w", u.Index.Hash().B58String(), indexURL.String(), err)
-			}
-			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				return nil, nil, fmt.Errorf("reading index: z%s: %w", u.Index.Hash().B58String(), err)
-			}
-			digest, err := mh.Sum(body, mh.SHA2_256, -1)
-			if err != nil {
-				return nil, nil, fmt.Errorf("hashing index body: z%s: %w", u.Index.Hash().B58String(), err)
-			}
-			if !bytes.Equal(digest, u.Index.Hash()) {
-				return nil, nil, fmt.Errorf("hash integrity failure: z%s: %w", u.Index.Hash().B58String(), err)
-			}
-			index, err := blobindex.Extract(bytes.NewReader(body))
-			if err != nil {
-				return nil, nil, fmt.Errorf("extracting index: z%s: %w", u.Index.Hash().B58String(), err)
-			}
-			return result, index, nil
-		}()
+		index, err := findIndex(ctx, r.indexer, u.Root, u.Index)
 		if err != nil {
 			err = r.results.Append(model.Retrieval{
 				ID:     uuid.New(),
@@ -114,31 +75,7 @@ loop:
 		log.Infof("  %s", u.Index)
 
 		for shardDigest, slices := range index.Shards().Iterator() {
-			shardURL, shardLocationCommitment, err := func() (url.URL, delegation.Delegation, error) {
-				var surl url.URL
-				var lcomm delegation.Delegation
-				// only the shard that contains the root will get its location commitment included in the result,
-				// for other shards we will need to query the indexing-service again for that shard
-				if slices.Has(u.Root.Hash()) {
-					surl, lcomm, err = extractLocation(shardDigest, result)
-					if err != nil {
-						return url.URL{}, nil, fmt.Errorf("extracting location URL for: z%s from result for root: z%s: %w", shardDigest.B58String(), u.Root, err)
-					}
-				} else {
-					shardResult, err := r.indexer.QueryClaims(ctx, types.Query{
-						Hashes: []mh.Multihash{shardDigest},
-					})
-					if err != nil {
-						return url.URL{}, nil, fmt.Errorf("querying claims for: %s: %w", shardDigest.B58String(), err)
-					}
-
-					surl, lcomm, err = extractLocation(shardDigest, shardResult)
-					if err != nil {
-						return url.URL{}, nil, fmt.Errorf("extracting location URL from result for shard: z%s", shardDigest.B58String())
-					}
-				}
-				return surl, lcomm, nil
-			}()
+			shardURL, shardLocationCommitment, err := findLocation(ctx, r.indexer, shardDigest)
 			if err != nil {
 				err = r.results.Append(model.Retrieval{
 					ID:     uuid.New(),
@@ -254,6 +191,57 @@ func testRetrieveSlice(slice mh.Multihash, url url.URL, position blobindex.Posit
 		Ended:     time.Now(),
 		Status:    res.StatusCode,
 	}
+}
+
+func findIndex(ctx context.Context, indexer *client.Client, root model.Link, index model.Link) (blobindex.ShardedDagIndexView, error) {
+	result, err := indexer.QueryClaims(ctx, types.Query{
+		Hashes: []mh.Multihash{root.Hash()},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("querying claims for: %s: %w", root.String(), err)
+	}
+	if len(result.Indexes()) == 0 {
+		return nil, fmt.Errorf("no results for root CID: %s", root)
+	}
+	if !slices.ContainsFunc(result.Indexes(), func(l ipld.Link) bool {
+		return l.String() == index.String()
+	}) {
+		return nil, fmt.Errorf("index not found in query results: %s", index)
+	}
+	indexURL, _, err := extractLocation(index.Hash(), result)
+	if err != nil {
+		return nil, fmt.Errorf("extracting location URL for: z%s from result for root: %s: %w", index.Hash().B58String(), root, err)
+	}
+	res, err := http.Get(indexURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("getting index: z%s from URL: %s: %w", index.Hash().B58String(), indexURL.String(), err)
+	}
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading index: z%s: %w", index.Hash().B58String(), err)
+	}
+	digest, err := mh.Sum(body, mh.SHA2_256, -1)
+	if err != nil {
+		return nil, fmt.Errorf("hashing index body: z%s: %w", index.Hash().B58String(), err)
+	}
+	if !bytes.Equal(digest, index.Hash()) {
+		return nil, fmt.Errorf("hash integrity failure: z%s: %w", index.Hash().B58String(), err)
+	}
+	dagIndex, err := blobindex.Extract(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("extracting index: z%s: %w", index.Hash().B58String(), err)
+	}
+	return dagIndex, nil
+}
+
+func findLocation(ctx context.Context, indexer *client.Client, shard mh.Multihash) (url.URL, delegation.Delegation, error) {
+	shardResult, err := indexer.QueryClaims(ctx, types.Query{
+		Hashes: []mh.Multihash{shard},
+	})
+	if err != nil {
+		return url.URL{}, nil, fmt.Errorf("querying claims for: %s: %w", shard.B58String(), err)
+	}
+	return extractLocation(shard, shardResult)
 }
 
 type source struct {

@@ -5,9 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,7 +22,6 @@ import (
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/indexing-service/pkg/client"
-	"github.com/storacha/indexing-service/pkg/types"
 	"github.com/storacha/network-tester/pkg/eventlog"
 	"github.com/storacha/network-tester/pkg/model"
 	"github.com/storacha/network-tester/pkg/util"
@@ -62,46 +59,7 @@ loop:
 		log.Infof("    started: %s", u.Started.Format(time.DateTime))
 		log.Infof("    ended: %s", u.Ended.Format(time.DateTime))
 
-		_, index, err := func() (types.QueryResult, blobindex.ShardedDagIndexView, error) {
-			result, err := r.indexer.QueryClaims(ctx, types.Query{
-				Hashes: []mh.Multihash{u.Root.Hash()},
-			})
-			if err != nil {
-				return nil, nil, fmt.Errorf("querying claims for: %s: %w", u.Root.String(), err)
-			}
-			if len(result.Indexes()) == 0 {
-				return nil, nil, fmt.Errorf("no results for root CID: %s", u.Root)
-			}
-			if !slices.ContainsFunc(result.Indexes(), func(l ipld.Link) bool {
-				return l.String() == u.Index.String()
-			}) {
-				return nil, nil, fmt.Errorf("index not found in query results: %s", u.Index)
-			}
-			indexURL, _, err := extractLocation(u.Index.Hash(), result)
-			if err != nil {
-				return nil, nil, fmt.Errorf("extracting location URL for: z%s from result for root: %s: %w", u.Index.Hash().B58String(), u.Root, err)
-			}
-			res, err := http.Get(indexURL.String())
-			if err != nil {
-				return nil, nil, fmt.Errorf("getting index: z%s from URL: %s: %w", u.Index.Hash().B58String(), indexURL.String(), err)
-			}
-			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				return nil, nil, fmt.Errorf("reading index: z%s: %w", u.Index.Hash().B58String(), err)
-			}
-			digest, err := mh.Sum(body, mh.SHA2_256, -1)
-			if err != nil {
-				return nil, nil, fmt.Errorf("hashing index body: z%s: %w", u.Index.Hash().B58String(), err)
-			}
-			if !bytes.Equal(digest, u.Index.Hash()) {
-				return nil, nil, fmt.Errorf("hash integrity failure: z%s: %w", u.Index.Hash().B58String(), err)
-			}
-			index, err := blobindex.Extract(bytes.NewReader(body))
-			if err != nil {
-				return nil, nil, fmt.Errorf("extracting index: z%s: %w", u.Index.Hash().B58String(), err)
-			}
-			return result, index, nil
-		}()
+		index, err := findIndex(ctx, r.indexer, u.Root, u.Index)
 		if err != nil {
 			err = r.results.Append(model.Retrieval{
 				ID:     uuid.New(),
@@ -173,7 +131,17 @@ loop:
 	return nil
 }
 
-func testAuthorizedRetrieveSlice(ctx context.Context, id ucan.Signer, nodeID ucan.Principal, space did.DID, proofs delegation.Proofs, shard mh.Multihash, slice mh.Multihash, url url.URL, position blobindex.Position) sliceRetrieval {
+func testAuthorizedRetrieveSlice(
+	ctx context.Context,
+	id ucan.Signer,
+	nodeID ucan.Principal,
+	space did.DID,
+	proofs delegation.Proofs,
+	shard mh.Multihash,
+	slice mh.Multihash,
+	url url.URL,
+	position blobindex.Position,
+) sliceRetrieval {
 	errDesc := fmt.Sprintf("node: %s, url: %s, range: bytes=%d-%d, slice: z%s", nodeID.DID().String(), url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String())
 	ret := sliceRetrieval{}
 	ret.Started = time.Now()
@@ -280,14 +248,4 @@ func NewAuthorizedRetrievalTestRunner(region string, id ucan.Signer, indexer *cl
 	}
 	proofs := []delegation.Proof{delegation.FromDelegation(proof)}
 	return &AuthorizedRetrievalTestRunner{region, id, indexer, space, proofs, uploads, results}, nil
-}
-
-func findLocation(ctx context.Context, indexer *client.Client, shard mh.Multihash) (url.URL, delegation.Delegation, error) {
-	shardResult, err := indexer.QueryClaims(ctx, types.Query{
-		Hashes: []mh.Multihash{shard},
-	})
-	if err != nil {
-		return url.URL{}, nil, fmt.Errorf("querying claims for: %s: %w", shard.B58String(), err)
-	}
-	return extractLocation(shard, shardResult)
 }
