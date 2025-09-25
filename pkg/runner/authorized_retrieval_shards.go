@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/blobindex"
 	"github.com/storacha/go-libstoracha/capabilities/space/content"
+	"github.com/storacha/go-libstoracha/digestutil"
 	rclient "github.com/storacha/go-ucanto/client/retrieval"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
@@ -27,45 +27,41 @@ import (
 	"github.com/storacha/network-tester/pkg/util"
 )
 
-type AuthorizedRetrievalTestRunner struct {
+type AuthorizedRetrievalShardsTestRunner struct {
 	region  string
 	id      ucan.Signer
 	indexer *client.Client
 	space   did.DID
 	proofs  delegation.Proofs
-	uploads eventlog.Iterable[model.Upload]
+	shards  eventlog.Iterable[model.Shard]
 	results eventlog.Appender[model.Retrieval]
 }
 
-func (r *AuthorizedRetrievalTestRunner) Run(ctx context.Context) error {
+func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 	log.Info("Region")
 	log.Infof("  %s", r.region)
 
-loop:
-	for u, err := range r.uploads.Iterator() {
+	for s, err := range r.shards.Iterator() {
 		if err != nil {
 			return err
 		}
-		if u.Error.Error() != "" {
-			log.Infof("Skipping failed upload: %s", u.ID)
+		if s.Error.Error() != "" {
+			log.Infof("Skipping failed shard: %s", s.ID)
 			continue
 		}
-		log.Info("Upload")
-		log.Infof("  %s", u.ID)
-		log.Infof("    root: %s", u.Root.String())
-		log.Infof("    source: %s", u.Source)
-		log.Infof("    index: %s", u.Index.String())
-		log.Infof("    shards: %v", u.Shards)
-		log.Infof("    started: %s", u.Started.Format(time.DateTime))
-		log.Infof("    ended: %s", u.Ended.Format(time.DateTime))
+		log.Info("Shard")
+		log.Infof("  %s (%s)", s.ID, digestutil.Format(s.ID.Hash()))
+		log.Infof("    url: %s", s.URL.String())
 
-		index, err := findIndex(ctx, r.indexer, u.Root, u.Index)
+		shardDigest := s.ID.Hash()
+		shardURL, shardLocationCommitment, err := findLocation(ctx, r.indexer, shardDigest)
 		if err != nil {
 			err = r.results.Append(model.Retrieval{
 				ID:     uuid.New(),
 				Region: r.region,
-				Source: u.Source,
-				Upload: u.ID,
+				Source: s.Source,
+				Upload: s.Upload,
+				Shard:  model.Multihash{Multihash: shardDigest},
 				Error:  model.Error{Message: err.Error()},
 			})
 			if err != nil {
@@ -74,80 +70,48 @@ loop:
 			continue
 		}
 
-		log.Info("Index")
-		log.Infof("  %s", u.Index)
+		nodeID := shardLocationCommitment.Issuer()
+		retrieval := testAuthorizedRetrieveShard(ctx, r.id, nodeID, r.space, r.proofs, shardDigest, shardURL, uint64(s.Size))
+		log.Infof("      %s @ 0-%d", digestutil.Format(shardDigest), s.Size-1)
 
-		for shardDigest, slices := range index.Shards().Iterator() {
-			shardURL, shardLocationCommitment, err := findLocation(ctx, r.indexer, shardDigest)
-			if err != nil {
-				err = r.results.Append(model.Retrieval{
-					ID:     uuid.New(),
-					Region: r.region,
-					Source: u.Source,
-					Upload: u.ID,
-					Shard:  model.Multihash{Multihash: shardDigest},
-					Error:  model.Error{Message: err.Error()},
-				})
-				if err != nil {
-					return err
-				}
-				continue loop
-			}
-
-			log.Info("Shard")
-			log.Infof("  z%s", shardDigest.B58String())
-			log.Infof("    url: %s", shardURL.String())
-			log.Info("    slices:")
-
-			nodeID := shardLocationCommitment.Issuer()
-			for sliceDigest, position := range slices.Iterator() {
-				retrieval := testAuthorizedRetrieveSlice(ctx, r.id, nodeID, r.space, r.proofs, shardDigest, sliceDigest, shardURL, position)
-				log.Infof("      z%s @ %d-%d", sliceDigest.B58String(), position.Offset, position.Offset+position.Length-1)
-
-				err = r.results.Append(model.Retrieval{
-					ID:        uuid.New(),
-					Region:    r.region,
-					Source:    u.Source,
-					Upload:    u.ID,
-					Node:      model.DID{DID: shardLocationCommitment.Issuer().DID()},
-					Shard:     model.Multihash{Multihash: shardDigest},
-					Slice:     model.Multihash{Multihash: sliceDigest},
-					Size:      int(position.Length),
-					Started:   retrieval.Started,
-					Responded: retrieval.Responded,
-					Ended:     retrieval.Ended,
-					Status:    retrieval.Status,
-					Error:     model.Error{Message: retrieval.Error},
-				})
-				if err != nil {
-					return err
-				}
-			}
+		err = r.results.Append(model.Retrieval{
+			ID:        uuid.New(),
+			Region:    r.region,
+			Source:    s.Source,
+			Upload:    s.Upload,
+			Node:      model.DID{DID: shardLocationCommitment.Issuer().DID()},
+			Shard:     model.Multihash{Multihash: shardDigest},
+			Slice:     model.Multihash{Multihash: shardDigest},
+			Size:      s.Size,
+			Started:   retrieval.Started,
+			Responded: retrieval.Responded,
+			Ended:     retrieval.Ended,
+			Status:    retrieval.Status,
+			Error:     model.Error{Message: retrieval.Error},
+		})
+		if err != nil {
+			return err
 		}
 
-		log.Infof("%s passed", u.ID)
+		log.Infof("%s passed", digestutil.Format(shardDigest))
 	}
 
 	return nil
 }
 
-func testAuthorizedRetrieveSlice(
+func testAuthorizedRetrieveShard(
 	ctx context.Context,
 	id ucan.Signer,
 	nodeID ucan.Principal,
 	space did.DID,
 	proofs delegation.Proofs,
 	shard mh.Multihash,
-	slice mh.Multihash,
 	url url.URL,
-	position blobindex.Position,
+	size uint64,
 ) sliceRetrieval {
-	errDesc := fmt.Sprintf("node: %s, url: %s, range: bytes=%d-%d, slice: z%s", nodeID.DID().String(), url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String())
+	errDesc := fmt.Sprintf("node: %s, url: %s, shard: z%s", nodeID.DID().String(), url.String(), shard.B58String())
 	ret := sliceRetrieval{}
 	ret.Started = time.Now()
-	defer func() {
-		ret.Ended = time.Now()
-	}()
 
 	inv, err := invocation.Invoke(
 		id,
@@ -159,25 +123,29 @@ func testAuthorizedRetrieveSlice(
 					Digest: shard,
 				},
 				Range: content.Range{
-					Start: position.Offset,
-					End:   position.Offset + position.Length - 1,
+					Start: 0,
+					End:   size - 1,
 				},
 			},
 		),
+		delegation.WithProof(proofs...),
 	)
 	if err != nil {
 		ret.Error = fmt.Errorf("creating invocation: %s: %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 	conn, err := rclient.NewConnection(nodeID, &url)
 	if err != nil {
 		ret.Error = fmt.Errorf("creating connection: %s, %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 	xres, hres, err := rclient.Execute(ctx, inv, conn)
 	ret.Responded = time.Now()
 	if err != nil {
 		ret.Error = fmt.Errorf("executing space/content/retrieve invocation: %s: %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 	ret.Status = hres.Status()
@@ -185,18 +153,21 @@ func testAuthorizedRetrieveSlice(
 	rcptLink, ok := xres.Get(inv.Link())
 	if !ok {
 		ret.Error = fmt.Errorf("execution response did not contain receipt for invocation: %s", errDesc).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 
 	bs, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(xres.Blocks()))
 	if err != nil {
 		ret.Error = fmt.Errorf("adding blocks to reader: %s: %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 
 	rcpt, err := receipt.NewAnyReceipt(rcptLink, bs)
 	if err != nil {
 		ret.Error = fmt.Errorf("adding blocks to reader: %s: %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 
@@ -205,6 +176,7 @@ func testAuthorizedRetrieveSlice(
 		fail, err := util.BindFailure(x)
 		if err != nil {
 			ret.Error = fmt.Errorf("binding retrieve failure: %s: %w", errDesc, err).Error()
+			ret.Ended = time.Now()
 			return ret
 		}
 		name := "Unnamed"
@@ -212,12 +184,14 @@ func testAuthorizedRetrieveSlice(
 			name = *fail.Name
 		}
 		ret.Error = fmt.Errorf("execution failure: %s: %s: %s", errDesc, name, fail.Message).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 
 	_, err = ipld.Rebind[content.RetrieveOk](o, content.RetrieveOkType())
 	if err != nil {
 		ret.Error = fmt.Errorf("rebinding retrieve ok: %s: %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 
@@ -227,25 +201,39 @@ func testAuthorizedRetrieveSlice(
 	data, err := io.ReadAll(body)
 	if err != nil {
 		ret.Error = fmt.Errorf("reading response body: %s: %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 	dataDigest, err := mh.Sum(data, mh.SHA2_256, -1)
 	if err != nil {
 		ret.Error = fmt.Errorf("hashing data: %s: %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
-	if !bytes.Equal(slice, dataDigest) {
+	if !bytes.Equal(shard, dataDigest) {
 		ret.Error = fmt.Errorf("hash integirty failure: %s: %w", errDesc, err).Error()
+		ret.Ended = time.Now()
 		return ret
 	}
 	return ret
 }
 
-func NewAuthorizedRetrievalTestRunner(region string, id ucan.Signer, indexer *client.Client, proof delegation.Delegation, uploads eventlog.Iterable[model.Upload], results eventlog.Appender[model.Retrieval]) (*AuthorizedRetrievalTestRunner, error) {
-	space, err := ResourceFromDelegation(proof)
+type AuthorizedRetrievalShardsTestConfig struct {
+	Region  string
+	ID      ucan.Signer
+	Proof   delegation.Delegation
+	Indexer *client.Client
+}
+
+func NewAuthorizedRetrievalShardsTestRunner(
+	config AuthorizedRetrievalShardsTestConfig,
+	shards eventlog.Iterable[model.Shard],
+	results eventlog.Appender[model.Retrieval],
+) (*AuthorizedRetrievalShardsTestRunner, error) {
+	space, err := ResourceFromDelegation(config.Proof)
 	if err != nil {
 		return nil, err
 	}
-	proofs := []delegation.Proof{delegation.FromDelegation(proof)}
-	return &AuthorizedRetrievalTestRunner{region, id, indexer, space, proofs, uploads, results}, nil
+	proofs := []delegation.Proof{delegation.FromDelegation(config.Proof)}
+	return &AuthorizedRetrievalShardsTestRunner{config.Region, config.ID, config.Indexer, space, proofs, shards, results}, nil
 }
