@@ -9,13 +9,13 @@ require (
 	github.com/ipld/go-ipld-prime v0.21.1-0.20240917223228-6148356a4c2e
 	github.com/joho/godotenv v1.5.1
 	github.com/multiformats/go-multibase v0.2.0
-	github.com/multiformats/go-multicodec v0.9.1
+	github.com/multiformats/go-multicodec v0.9.2
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/spf13/cobra v1.9.1
-	github.com/storacha/go-libstoracha v0.2.1
-	github.com/storacha/go-ucanto v0.5.0
-	github.com/storacha/guppy v0.0.4-0.20250815162858-fdb2f47758f7
-	github.com/storacha/indexing-service v1.9.2-0.20250811141509-db04b631ecdc
+	github.com/storacha/go-libstoracha v0.2.8
+	github.com/storacha/go-ucanto v0.6.2
+	github.com/storacha/guppy v0.0.4-0.20250923174858-097a3a827584
+	github.com/storacha/indexing-service v1.10.2-0.20250924133607-7bab81c32788
 )
 
 require (
@@ -59,7 +59,7 @@ require (
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect
 	github.com/multiformats/go-multiaddr v0.16.0 // indirect
-	github.com/multiformats/go-varint v0.0.7 // indirect
+	github.com/multiformats/go-varint v0.1.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -79,7 +79,7 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

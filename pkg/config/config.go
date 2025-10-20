@@ -54,7 +54,7 @@ func Load() {
 		panic("unknown network: " + os.Getenv("NETWORK"))
 	}
 
-	channel := http.NewHTTPChannel(UploadServiceURL)
+	channel := http.NewChannel(UploadServiceURL)
 	UploadServiceConnection = Must(client.NewConnection(UploadServicePrincipal, channel))
 
 	Region = os.Getenv("REGION")
