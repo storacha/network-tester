@@ -332,7 +332,7 @@ func (c *shardTrackerClient) SpaceBlobAdd(ctx context.Context, content io.Reader
 	}
 
 	// Create CID from the returned digest
-	cidV1 := cid.NewCidV1(cid.Raw, digest)
+	cidV1 := cid.NewCidV1(multicodec.Car, digest)
 	uploadLog.Infof("Shard uploaded: %s", cidV1)
 
 	// Track the shard
