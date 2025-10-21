@@ -6,16 +6,18 @@ Test uploads and more to the Storacha Network.
 
 ### Upload Testing
 
+#### JS Uploads
+
 1. Install Node.js
 2. Clone the repo and cd into it
 3. Install project dependencies `npm install`
 4. Install the storacha CLI `npm install -g @storacha/cli`
-5. Rename `.env.tpl` to `.env`
+5. Copy `.env.tpl` to `.env`
 6. Create an identity for the upload tester `storacha key create`
 7. Add private key to `.env`
 8. Create a space for uploads to go to `storacha space create`
     * ⚠️ Ensure you set the correct [environment variables](https://gist.github.com/alanshaw/3c27e67bd9136c789e90950e3fc67644) if using non-production network.
-9. Delegate access to the space `storacha delegation create -c space/blob/add -c space/blob/replicate -c space/index/add -c upload/add -c space/content/retrieve did:key:uploadTester --base64`
+9. Delegate access to the space `storacha delegation create -c space/blob/add -c space/blob/replicate -c space/index/add -c upload/add -c space/content/retrieve <generated-key-did> --base64`
 10. Add delegation (proof) to `.env`
 11. Set your region in `.env` to something sensible
 12. Start the test using `npm start`
@@ -26,11 +28,18 @@ The script generates event logs to the following files:
 * `data/shards.csv` - information about each shard that is stored to the service as part of an "upload".
 * `data/uploads.csv` - information about each upload that is performed, i.e. the shards and the DAG root CID.
 
+#### Go Uploads
+
+1. Install Go
+2. Start the test using `go run . upload`
+
+The script generates the same event logs as the JS version.
+
 ### Retrieval Testing
 
 1. Run the upload tests
 2. Install Go
-3. Start the test using `go run . ./data/uploads.csv >> ./data/retrievals.csv`
+3. Start the test using `go run . retrieval ./data/uploads.csv >> ./data/retrievals.csv`
 
 The script generates event logs to the following files:
 
