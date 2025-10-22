@@ -16,6 +16,7 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/multiformats/go-multicodec"
 	mh "github.com/multiformats/go-multihash"
 	"github.com/spf13/afero"
 	assertcap "github.com/storacha/go-libstoracha/capabilities/assert"
@@ -332,7 +333,7 @@ func (c *shardTrackerClient) SpaceBlobAdd(ctx context.Context, content io.Reader
 	}
 
 	// Create CID from the returned digest
-	cidV1 := cid.NewCidV1(multicodec.Car, digest)
+	cidV1 := cid.NewCidV1(uint64(multicodec.Car), digest)
 	uploadLog.Infof("Shard uploaded: %s", cidV1)
 
 	// Track the shard
