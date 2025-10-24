@@ -58,18 +58,6 @@ export const uploadConnection = network === 'staging-warm'
     ? stagingUploadConnection
     : hotUploadConnection
 
-export const indexerServicePrincipal = network === 'staging-warm'
-  ? DID.parse('did:web:staging.indexer.warm.storacha.network')
-  : network === 'staging'
-    ? DID.parse('did:web:staging.indexer.storacha.network')
-    : DID.parse('did:web:indexer.storacha.network')
-
-export const indexerServiceURL = network === 'staging-warm'
-  ? new URL('https://staging.indexer.warm.storacha.network')
-  : network === 'staging'
-    ? new URL('https://staging.indexer.storacha.network')
-    : new URL('https://indexer.storacha.network')
-
 export const id = Ed25519.parse(process.env.PRIVATE_KEY ?? '')
 
 export const proof = await Proof.parse(process.env.PROOF ?? '')

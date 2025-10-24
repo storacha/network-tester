@@ -15,9 +15,8 @@ import * as Blob from '@storacha/upload-client/blob'
 import * as Index from '@storacha/upload-client/index'
 import * as Upload from '@storacha/upload-client/upload'
 import { indexShardedDAG } from '@storacha/blob-index'
-import { Client } from '@storacha/indexing-service-client'
 import seedRandom from 'seedrandom'
-import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, uploadConnection, indexerServicePrincipal, indexerServiceURL, dataDir, network } from './config.js'
+import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, uploadConnection, dataDir, network } from './config.js'
 import { generateSource, minFileSize } from './gen.js'
 import * as EventLog from './event-log.js'
 
@@ -38,11 +37,6 @@ const invocationConf = {
   proofs: [proof]
 }
 const options = { connection: uploadConnection }
-
-const indexerClient = new Client({
-  servicePrincipal: indexerServicePrincipal,
-  serviceURL: indexerServiceURL,
-})
 
 const [sourceLog, shardLog, uploadLog] = await Promise.all([
   EventLog.create(path.join(dataDir, 'sources.csv')),
@@ -203,7 +197,7 @@ while (totalSize < maxBytes) {
           // and index it.
           const retrievalAuth = await SpaceContent.retrieve.delegate({
             issuer: id,
-            audience: indexerServicePrincipal,
+            audience: uploadConnection.id,
             with: spaceDID,
             nb: {
               blob: { digest: indexDigest.bytes },
