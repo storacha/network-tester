@@ -176,7 +176,7 @@ func findIndexWithAuth(
 	}) {
 		return nil, fmt.Errorf("index not found in query results: %s", index)
 	}
-	var blocks map[ipld.Link]ipld.Block
+	blocks := map[ipld.Link]ipld.Block{}
 	for b, err := range result.Blocks() {
 		if err != nil {
 			return nil, err
