@@ -29,7 +29,7 @@ var authorizedRetrievalCmd = &cobra.Command{
 		uploads := eventlog.NewCSVReader[model.Upload](uploadsData)
 		results := eventlog.NewCSVWriter[model.Retrieval](os.Stdout)
 
-		runner, err := runner.NewAuthorizedRetrievalTestRunner(config.Region, config.ID(), indexer, config.Proof(), uploads, results)
+		runner, err := runner.NewAuthorizedRetrievalTestRunner(config.Region, config.ID(), config.IndexingServicePrincipal, indexer, config.Proof(), uploads, results)
 		cobra.CheckErr(err)
 
 		err = runner.Run(cmd.Context())

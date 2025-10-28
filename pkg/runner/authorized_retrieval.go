@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,19 +24,21 @@ import (
 	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/indexing-service/pkg/client"
+	"github.com/storacha/indexing-service/pkg/types"
 	"github.com/storacha/network-tester/pkg/eventlog"
 	"github.com/storacha/network-tester/pkg/model"
 	"github.com/storacha/network-tester/pkg/util"
 )
 
 type AuthorizedRetrievalTestRunner struct {
-	region  string
-	id      ucan.Signer
-	indexer *client.Client
-	space   did.DID
-	proofs  delegation.Proofs
-	uploads eventlog.Iterable[model.Upload]
-	results eventlog.Appender[model.Retrieval]
+	region                   string
+	id                       ucan.Signer
+	indexingServicePrincipal ucan.Principal
+	indexer                  *client.Client
+	space                    did.DID
+	proofs                   delegation.Proofs
+	uploads                  eventlog.Iterable[model.Upload]
+	results                  eventlog.Appender[model.Retrieval]
 }
 
 func (r *AuthorizedRetrievalTestRunner) Run(ctx context.Context) error {
@@ -59,7 +63,7 @@ loop:
 		log.Infof("    started: %s", u.Started.Format(time.DateTime))
 		log.Infof("    ended: %s", u.Ended.Format(time.DateTime))
 
-		index, err := findIndex(ctx, r.indexer, u.Root, u.Index)
+		index, err := findIndexWithAuth(ctx, r.id, r.indexingServicePrincipal, r.space, r.indexer, u.Root, u.Index, r.proofs)
 		if err != nil {
 			err = r.results.Append(model.Retrieval{
 				ID:     uuid.New(),
@@ -78,7 +82,7 @@ loop:
 		log.Infof("  %s", u.Index)
 
 		for shardDigest, slices := range index.Shards().Iterator() {
-			shardURL, shardLocationCommitment, err := findLocation(ctx, r.indexer, shardDigest)
+			shardURL, shardLocationCommitment, err := findLocationWithAuth(ctx, r.id, r.indexingServicePrincipal, r.space, r.indexer, shardDigest, r.proofs)
 			if err != nil {
 				err = r.results.Append(model.Retrieval{
 					ID:     uuid.New(),
@@ -131,6 +135,104 @@ loop:
 	return nil
 }
 
+func findIndexWithAuth(
+	ctx context.Context,
+	id ucan.Signer,
+	indexingServicePrincipal ucan.Principal,
+	space did.DID,
+	indexer *client.Client,
+	root model.Link,
+	index model.Link,
+	proofs delegation.Proofs,
+) (blobindex.ShardedDagIndexView, error) {
+	dlg, err := delegation.Delegate(
+		id,
+		indexingServicePrincipal,
+		[]ucan.Capability[ucan.NoCaveats]{
+			ucan.NewCapability(content.Retrieve.Can(), space.DID().String(), ucan.NoCaveats{}),
+		},
+		delegation.WithProof(proofs...),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating retrieval delegation to indexing service: %s: %w", root.String(), err)
+	}
+	result, err := indexer.QueryClaims(ctx, types.Query{
+		Hashes: []mh.Multihash{root.Hash()},
+		Match: types.Match{
+			Subject: []did.DID{space},
+		},
+		Delegations: []delegation.Delegation{dlg},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("querying claims for: %s: %w", root.String(), err)
+	}
+	if len(result.Indexes()) == 0 {
+		return nil, fmt.Errorf("no results for root CID: %s", root)
+	}
+	if !slices.ContainsFunc(result.Indexes(), func(l ipld.Link) bool {
+		return l.String() == index.String()
+	}) {
+		return nil, fmt.Errorf("index not found in query results: %s", index)
+	}
+	indexURL, _, err := extractLocation(index.Hash(), result)
+	if err != nil {
+		return nil, fmt.Errorf("extracting location URL for: z%s from result for root: %s: %w", index.Hash().B58String(), root, err)
+	}
+	res, err := http.Get(indexURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("getting index: z%s from URL: %s: %w", index.Hash().B58String(), indexURL.String(), err)
+	}
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading index: z%s: %w", index.Hash().B58String(), err)
+	}
+	digest, err := mh.Sum(body, mh.SHA2_256, -1)
+	if err != nil {
+		return nil, fmt.Errorf("hashing index body: z%s: %w", index.Hash().B58String(), err)
+	}
+	if !bytes.Equal(digest, index.Hash()) {
+		return nil, fmt.Errorf("hash integrity failure: z%s: %w", index.Hash().B58String(), err)
+	}
+	dagIndex, err := blobindex.Extract(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("extracting index: z%s: %w", index.Hash().B58String(), err)
+	}
+	return dagIndex, nil
+}
+
+func findLocationWithAuth(
+	ctx context.Context,
+	id ucan.Signer,
+	indexingServicePrincipal ucan.Principal,
+	space did.DID,
+	indexer *client.Client,
+	shard mh.Multihash,
+	proofs delegation.Proofs,
+) (url.URL, delegation.Delegation, error) {
+	dlg, err := delegation.Delegate(
+		id,
+		indexingServicePrincipal,
+		[]ucan.Capability[ucan.NoCaveats]{
+			ucan.NewCapability(content.Retrieve.Can(), space.DID().String(), ucan.NoCaveats{}),
+		},
+		delegation.WithProof(proofs...),
+	)
+	if err != nil {
+		return url.URL{}, nil, fmt.Errorf("creating retrieval delegation to indexing service: %w", err)
+	}
+	shardResult, err := indexer.QueryClaims(ctx, types.Query{
+		Hashes: []mh.Multihash{shard},
+		Match: types.Match{
+			Subject: []did.DID{space},
+		},
+		Delegations: []delegation.Delegation{dlg},
+	})
+	if err != nil {
+		return url.URL{}, nil, fmt.Errorf("querying claims for: %s: %w", shard.B58String(), err)
+	}
+	return extractLocation(shard, shardResult)
+}
+
 func testAuthorizedRetrieveSlice(
 	ctx context.Context,
 	id ucan.Signer,
@@ -164,6 +266,7 @@ func testAuthorizedRetrieveSlice(
 				},
 			},
 		),
+		delegation.WithProof(proofs...),
 	)
 	if err != nil {
 		ret.Error = fmt.Errorf("creating invocation: %s: %w", errDesc, err).Error()
@@ -241,11 +344,11 @@ func testAuthorizedRetrieveSlice(
 	return ret
 }
 
-func NewAuthorizedRetrievalTestRunner(region string, id ucan.Signer, indexer *client.Client, proof delegation.Delegation, uploads eventlog.Iterable[model.Upload], results eventlog.Appender[model.Retrieval]) (*AuthorizedRetrievalTestRunner, error) {
+func NewAuthorizedRetrievalTestRunner(region string, id ucan.Signer, indexingServicePrincipal ucan.Principal, indexer *client.Client, proof delegation.Delegation, uploads eventlog.Iterable[model.Upload], results eventlog.Appender[model.Retrieval]) (*AuthorizedRetrievalTestRunner, error) {
 	space, err := ResourceFromDelegation(proof)
 	if err != nil {
 		return nil, err
 	}
 	proofs := []delegation.Proof{delegation.FromDelegation(proof)}
-	return &AuthorizedRetrievalTestRunner{region, id, indexer, space, proofs, uploads, results}, nil
+	return &AuthorizedRetrievalTestRunner{region, id, indexingServicePrincipal, indexer, space, proofs, uploads, results}, nil
 }
