@@ -176,14 +176,15 @@ func findIndexWithAuth(
 	}) {
 		return nil, fmt.Errorf("index not found in query results: %s", index)
 	}
-	blocks := map[ipld.Link]ipld.Block{}
 	for b, err := range result.Blocks() {
 		if err != nil {
 			return nil, err
 		}
-		blocks[b.Link()] = b
+		if b.Link().String() == index.String() {
+			return blobindex.Extract(bytes.NewReader(b.Bytes()))
+		}
 	}
-	return blobindex.View(index.Link, blocks)
+	return nil, fmt.Errorf("index not found")
 	// indexURL, _, err := extractLocation(index.Hash(), result)
 	// if err != nil {
 	// 	return nil, fmt.Errorf("extracting location URL for: z%s from result for root: %s: %w", index.Hash().B58String(), root, err)
