@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"slices"
 	"time"
@@ -177,30 +176,38 @@ func findIndexWithAuth(
 	}) {
 		return nil, fmt.Errorf("index not found in query results: %s", index)
 	}
-	indexURL, _, err := extractLocation(index.Hash(), result)
-	if err != nil {
-		return nil, fmt.Errorf("extracting location URL for: z%s from result for root: %s: %w", index.Hash().B58String(), root, err)
+	var blocks map[ipld.Link]ipld.Block
+	for b, err := range result.Blocks() {
+		if err != nil {
+			return nil, err
+		}
+		blocks[b.Link()] = b
 	}
-	res, err := http.Get(indexURL.String())
-	if err != nil {
-		return nil, fmt.Errorf("getting index: z%s from URL: %s: %w", index.Hash().B58String(), indexURL.String(), err)
-	}
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading index: z%s: %w", index.Hash().B58String(), err)
-	}
-	digest, err := mh.Sum(body, mh.SHA2_256, -1)
-	if err != nil {
-		return nil, fmt.Errorf("hashing index body: z%s: %w", index.Hash().B58String(), err)
-	}
-	if !bytes.Equal(digest, index.Hash()) {
-		return nil, fmt.Errorf("hash integrity failure: z%s: %w", index.Hash().B58String(), err)
-	}
-	dagIndex, err := blobindex.Extract(bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("extracting index: z%s: %w", index.Hash().B58String(), err)
-	}
-	return dagIndex, nil
+	return blobindex.View(index.Link, blocks)
+	// indexURL, _, err := extractLocation(index.Hash(), result)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("extracting location URL for: z%s from result for root: %s: %w", index.Hash().B58String(), root, err)
+	// }
+	// res, err := http.Get(indexURL.String())
+	// if err != nil {
+	// 	return nil, fmt.Errorf("getting index: z%s from URL: %s: %w", index.Hash().B58String(), indexURL.String(), err)
+	// }
+	// body, err := io.ReadAll(res.Body)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("reading index: z%s: %w", index.Hash().B58String(), err)
+	// }
+	// digest, err := mh.Sum(body, mh.SHA2_256, -1)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("hashing index body: z%s: %w", index.Hash().B58String(), err)
+	// }
+	// if !bytes.Equal(digest, index.Hash()) {
+	// 	return nil, fmt.Errorf("hash integrity failure: z%s: z%s", index.Hash().B58String(), digest)
+	// }
+	// dagIndex, err := blobindex.Extract(bytes.NewReader(body))
+	// if err != nil {
+	// 	return nil, fmt.Errorf("extracting index: z%s: %w", index.Hash().B58String(), err)
+	// }
+	// return dagIndex, nil
 }
 
 func findLocationWithAuth(
@@ -341,7 +348,7 @@ func testAuthorizedRetrieveSlice(
 		return ret
 	}
 	if !bytes.Equal(slice, dataDigest) {
-		ret.Error = fmt.Errorf("hash integirty failure: %s: z%s", errDesc, dataDigest.B58String()).Error()
+		ret.Error = fmt.Errorf("hash integrity failure: %s: z%s", errDesc, dataDigest.B58String()).Error()
 		return ret
 	}
 	return ret
