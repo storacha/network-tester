@@ -338,7 +338,7 @@ func testAuthorizedRetrieveSlice(
 		return ret
 	}
 	if !bytes.Equal(slice, dataDigest) {
-		ret.Error = fmt.Errorf("hash integirty failure: %s: %w", errDesc, err).Error()
+		ret.Error = fmt.Errorf("hash integirty failure: %s: z%s", errDesc, dataDigest.B58String()).Error()
 		return ret
 	}
 	return ret
