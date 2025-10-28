@@ -7,6 +7,8 @@ import { sha256 } from 'multiformats/hashes/sha2'
 import { base58btc } from 'multiformats/bases/base58'
 import * as Digest from 'multiformats/hashes/digest'
 import { v4 as generateUUID } from 'uuid'
+import * as SpaceIndex from '@storacha/capabilities/space/index'
+import * as SpaceContent from '@storacha/capabilities/space/content'
 import { BlockStream, code as carCode } from '@storacha/upload-client/car'
 import { ShardingStream } from '@storacha/upload-client/sharding'
 import * as Blob from '@storacha/upload-client/blob'
@@ -14,7 +16,7 @@ import * as Index from '@storacha/upload-client/index'
 import * as Upload from '@storacha/upload-client/upload'
 import { indexShardedDAG } from '@storacha/blob-index'
 import seedRandom from 'seedrandom'
-import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, connection, dataDir } from './config.js'
+import { id, proof, spaceDID, region, maxBytes, maxPerUploadBytes, maxShardSize, uploadConnection, dataDir, network } from './config.js'
 import { generateSource, minFileSize } from './gen.js'
 import * as EventLog from './event-log.js'
 
@@ -30,11 +32,11 @@ const isSubArray = (bytes) =>
 
 const invocationConf = {
   issuer: id,
-  audience: connection.id,
+  audience: uploadConnection.id,
   with: spaceDID,
   proofs: [proof]
 }
-const options = { connection }
+const options = { connection: uploadConnection }
 
 const [sourceLog, shardLog, uploadLog] = await Promise.all([
   EventLog.create(path.join(dataDir, 'sources.csv')),
@@ -93,6 +95,7 @@ while (totalSize < maxBytes) {
   let error = ''
 
   try {
+    // @ts-expect-error I don't have time for this
     await new BlockStream(source)
       .pipeThrough(new ShardingStream({ shardSize: maxShardSize }))
       .pipeThrough(
@@ -186,10 +189,56 @@ while (totalSize < maxBytes) {
       } catch (err) {
         throw new Error(`adding index blob: ${base58btc.encode(indexDigest.bytes)}`, { cause: err })
       }
-      try {
-        await Index.add(invocationConf, indexLink, options)
-      } catch (err) {
-        throw new Error(`adding index: ${indexLink}`, { cause: err })
+      // On the warm storage network, `space/index/add` requires a retrieval
+      // delegation.
+      if (network === 'staging-warm') {
+        try {
+          // Create retrieval auth for the index so that the indexer can fetch
+          // and index it.
+          const retrievalAuth = await SpaceContent.retrieve.delegate({
+            issuer: id,
+            audience: uploadConnection.id,
+            with: spaceDID,
+            nb: {
+              blob: { digest: indexDigest.bytes },
+              range: [0, indexBytes.ok.length - 1]
+            },
+            proofs: [proof]
+          })
+          // Attach to the `assert/index` invocation.
+          /** @type {Record<string, API.UnknownLink>} */
+          const facts = { retrievalAuth: retrievalAuth.link() }
+          /** @type {API.BlockStore<unknown>} */
+          const attachedBlocks = new Map()
+          for (const b of retrievalAuth.export()) {
+            // @ts-expect-error
+            attachedBlocks.set(b.cid.toString(), b)
+            facts[b.cid.toString()] = b.cid
+          }
+
+          const receipt = await SpaceIndex.add
+            .invoke({
+              issuer: id,
+              audience: uploadConnection.id,
+              with: spaceDID,
+              nb: { index: indexLink, content: root },
+              facts: [facts],
+              proofs: [proof],
+              attachedBlocks,
+            })
+            .execute(uploadConnection)
+          if (receipt.out.error) {
+            throw receipt.out.error
+          }
+        } catch (err) {
+          throw new Error(`asserting index: ${indexLink}`, { cause: err })
+        }
+      } else {
+        try {
+          await Index.add(invocationConf, indexLink, options)
+        } catch (err) {
+          throw new Error(`adding index: ${indexLink}`, { cause: err })
+        }
       }
       try {
         await Upload.add(invocationConf, root, shards, options)
