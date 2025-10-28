@@ -107,6 +107,9 @@ loop:
 			for sliceDigest, position := range slices.Iterator() {
 				retrieval := testAuthorizedRetrieveSlice(ctx, r.id, nodeID, r.space, r.proofs, shardDigest, sliceDigest, shardURL, position)
 				log.Infof("      z%s @ %d-%d", sliceDigest.B58String(), position.Offset, position.Offset+position.Length-1)
+				if retrieval.Error != "" {
+					log.Error(retrieval.Error)
+				}
 
 				err = r.results.Append(model.Retrieval{
 					ID:        uuid.New(),
