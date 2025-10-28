@@ -189,8 +189,8 @@ while (totalSize < maxBytes) {
       } catch (err) {
         throw new Error(`adding index blob: ${base58btc.encode(indexDigest.bytes)}`, { cause: err })
       }
-      // On the warm storage network, indexes are asserted directly on the
-      // indexing service by the client.
+      // On the warm storage network, `space/index/add` requires a retrieval
+      // delegation.
       if (network === 'staging-warm') {
         try {
           // Create retrieval auth for the index so that the indexer can fetch
