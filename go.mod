@@ -14,8 +14,8 @@ require (
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/cobra v1.9.1
 	github.com/storacha/go-libstoracha v0.2.8
-	github.com/storacha/go-ucanto v0.6.7-0.20251031130612-a2d468774250
-	github.com/storacha/guppy v0.0.4-0.20251031132842-56a2f20f3a2e
+	github.com/storacha/go-ucanto v0.6.7
+	github.com/storacha/guppy v0.0.4-0.20251031142956-df1589464b02
 	github.com/storacha/indexing-service v1.10.2-0.20250924133607-7bab81c32788
 	modernc.org/sqlite v1.38.0
 )
