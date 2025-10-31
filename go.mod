@@ -14,8 +14,8 @@ require (
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/cobra v1.9.1
 	github.com/storacha/go-libstoracha v0.2.8
-	github.com/storacha/go-ucanto v0.6.5
-	github.com/storacha/guppy v0.0.4-0.20251020203021-ab0da148fc41
+	github.com/storacha/go-ucanto v0.6.7-0.20251031130612-a2d468774250
+	github.com/storacha/guppy v0.0.4-0.20251031132842-56a2f20f3a2e
 	github.com/storacha/indexing-service v1.10.2-0.20250924133607-7bab81c32788
 	modernc.org/sqlite v1.38.0
 )
@@ -83,6 +83,7 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
 	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
+	go.opentelemetry.io/otel/sdk/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
