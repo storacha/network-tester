@@ -19,12 +19,14 @@ import (
 	"github.com/multiformats/go-multicodec"
 	mh "github.com/multiformats/go-multihash"
 	"github.com/spf13/afero"
-	assertcap "github.com/storacha/go-libstoracha/capabilities/assert"
-	"github.com/storacha/go-ucanto/core/delegation"
+	"github.com/storacha/go-libstoracha/capabilities/assert"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/go-ucanto/ucan"
 	guppyclient "github.com/storacha/guppy/pkg/client"
 	"github.com/storacha/guppy/pkg/preparation"
 	spacesmodel "github.com/storacha/guppy/pkg/preparation/spaces/model"
+	"github.com/storacha/guppy/pkg/preparation/storacha"
+	grc "github.com/storacha/guppy/pkg/receipt"
 	"github.com/storacha/network-tester/pkg/config"
 	"github.com/storacha/network-tester/pkg/eventlog"
 	"github.com/storacha/network-tester/pkg/model"
@@ -41,14 +43,15 @@ const (
 )
 
 type UploadTestRunner struct {
-	dataDir string
+	dataDir  string
+	receipts *grc.Client
 }
 
 type shardInfo struct {
 	cid      cid.Cid
 	size     int64
 	digest   mh.Multihash
-	location delegation.Delegation
+	location ucan.Capability[assert.LocationCaveats]
 }
 
 func (r *UploadTestRunner) Run(ctx context.Context) error {
@@ -98,6 +101,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 	guppyClient, err := guppyclient.NewClient(
 		guppyclient.WithConnection(config.UploadServiceConnection),
 		guppyclient.WithPrincipal(id),
+		guppyclient.WithReceiptsClient(r.receipts),
 	)
 	if err != nil {
 		return fmt.Errorf("creating guppy client: %w", err)
@@ -245,14 +249,12 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			var nodeID model.DID
 			var locationURL model.URL
 			if info.location != nil {
-				nodeID = model.DID{DID: info.location.Issuer().DID()}
-				if len(info.location.Capabilities()) != 1 {
-					return fmt.Errorf("expected 1 capability in location assertion, got %d", len(info.location.Capabilities()))
+				did, err := did.Parse(info.location.With())
+				if err != nil {
+					return fmt.Errorf("parsing node DID: %w", err)
 				}
-				locationCaveats, ok := info.location.Capabilities()[0].Nb().(assertcap.LocationCaveats)
-				if !ok {
-					return fmt.Errorf("expected LocationCaveats in location assertion, got %T", info.location.Capabilities()[0].Nb())
-				}
+				nodeID = model.DID{DID: did}
+				locationCaveats := info.location.Nb()
 				if len(locationCaveats.Location) == 0 {
 					return fmt.Errorf("no locations in location caveats")
 				}
@@ -317,34 +319,44 @@ type shardTrackerClient struct {
 	shards map[string]*shardInfo
 }
 
-func (c *shardTrackerClient) SpaceBlobAdd(ctx context.Context, content io.Reader, space did.DID, options ...guppyclient.SpaceBlobAddOption) (mh.Multihash, delegation.Delegation, error) {
+var _ storacha.Client = (*shardTrackerClient)(nil)
+
+func (c *shardTrackerClient) SpaceBlobAdd(ctx context.Context, content io.Reader, space did.DID, options ...guppyclient.SpaceBlobAddOption) (guppyclient.AddedBlob, error) {
 	// Read content to get size for tracking
 	data, err := io.ReadAll(content)
 	if err != nil {
-		return nil, nil, fmt.Errorf("reading content: %w", err)
+		return guppyclient.AddedBlob{}, fmt.Errorf("reading content: %w", err)
 	}
 
 	uploadLog.Infof("Uploading shard: %d bytes", len(data))
 
 	// Use the Guppy client to upload the shard
-	digest, location, err := c.Client.SpaceBlobAdd(ctx, bytes.NewReader(data), space, options...)
+	addedBlob, err := c.Client.SpaceBlobAdd(ctx, bytes.NewReader(data), space, options...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("uploading shard: %w", err)
+		return guppyclient.AddedBlob{}, fmt.Errorf("uploading shard: %w", err)
 	}
 
 	// Create CID from the returned digest
-	cidV1 := cid.NewCidV1(uint64(multicodec.Car), digest)
+	cidV1 := cid.NewCidV1(uint64(multicodec.Car), addedBlob.Digest)
 	uploadLog.Infof("Shard uploaded: %s", cidV1)
+
+	match, err := assert.Location.Match(source{
+		capability: addedBlob.Location.Capabilities()[0],
+		delegation: addedBlob.Location,
+	})
+	if err != nil {
+		return guppyclient.AddedBlob{}, fmt.Errorf("expected `assert/location` capability in location assertion")
+	}
 
 	// Track the shard
 	c.shards[cidV1.String()] = &shardInfo{
 		cid:      cidV1,
 		size:     int64(len(data)),
-		digest:   digest,
-		location: location,
+		digest:   addedBlob.Digest,
+		location: match.Value(),
 	}
 
-	return digest, location, nil
+	return addedBlob, nil
 }
 
 func generateSource(maxSize int) (string, map[string][]byte, error) {
@@ -376,6 +388,6 @@ func calculateTotalSize(files map[string][]byte) int {
 	return total
 }
 
-func NewUploadTestRunner(dataDir string) *UploadTestRunner {
-	return &UploadTestRunner{dataDir: dataDir}
+func NewUploadTestRunner(dataDir string, receipts *grc.Client) *UploadTestRunner {
+	return &UploadTestRunner{dataDir: dataDir, receipts: receipts}
 }
