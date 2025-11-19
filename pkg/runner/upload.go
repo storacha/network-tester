@@ -282,16 +282,16 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			shardLinks = append(shardLinks, model.Link{Link: cidlink.Link{Cid: info.cid}})
 		}
 
-		// Get index link - we don't have this from guppy yet
-		// The JS code creates an index separately
-		var indexLink model.Link
+		if len(shardTracker.indexes) != 1 {
+			return fmt.Errorf("expected 1 index, got %d", len(shardTracker.indexes))
+		}
 
 		// Log upload
 		err = uploadCSV.Append(model.Upload{
 			ID:      uploadID,
 			Root:    model.Link{Link: cidlink.Link{Cid: rootCID}},
 			Source:  sourceID,
-			Index:   indexLink,
+			Index:   model.Link{Link: cidlink.Link{Cid: shardTracker.indexes[0]}},
 			Shards:  model.LinkList(shardLinks),
 			Error:   uploadErr,
 			Started: startTime,
@@ -315,8 +315,9 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 // shardTrackerClient wraps a Guppy client and tracks uploaded shards
 type shardTrackerClient struct {
 	*guppyclient.Client
-	space  did.DID
-	shards map[string]*shardInfo
+	space   did.DID
+	shards  map[string]*shardInfo
+	indexes []cid.Cid
 }
 
 var _ storacha.Client = (*shardTrackerClient)(nil)
@@ -357,6 +358,11 @@ func (c *shardTrackerClient) SpaceBlobAdd(ctx context.Context, content io.Reader
 	}
 
 	return addedBlob, nil
+}
+
+func (c *shardTrackerClient) SpaceIndexAdd(ctx context.Context, indexCID cid.Cid, indexSize uint64, rootCID cid.Cid, space did.DID) error {
+	c.indexes = append(c.indexes, indexCID)
+	return c.Client.SpaceIndexAdd(ctx, indexCID, indexSize, rootCID, space)
 }
 
 func generateSource(maxSize int) (string, map[string][]byte, error) {

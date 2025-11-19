@@ -497,8 +497,8 @@ github.com/storacha/go-libstoracha v0.5.2-0.20251117155844-b4b67870f480 h1:RE3A6
 github.com/storacha/go-libstoracha v0.5.2-0.20251117155844-b4b67870f480/go.mod h1:6BEPZN2kYpwOGhxuccsQfyqPjpLwer4tbMObmZ6CM5M=
 github.com/storacha/go-ucanto v0.6.7 h1:rKNCyt9n4FwzCXIb+FDQ2Lcic+yNQK10PkGi4VipoM0=
 github.com/storacha/go-ucanto v0.6.7/go.mod h1:O35Ze4x18EWtz3ftRXXd/mTZ+b8OQVjYYrnadJ/xNjg=
-github.com/storacha/guppy v0.0.4-0.20251117210937-d0d2945ef1c7 h1:WPdjo9kdoQB1H1x0vsTXwfds25OxCekw46Kv90FtKew=
-github.com/storacha/guppy v0.0.4-0.20251117210937-d0d2945ef1c7/go.mod h1:dSKPdwcXSMnzkilUDFEYaWxznDghbcPiIyhPKKsI8Oo=
+github.com/storacha/guppy v0.0.4-0.20251119150728-f0b34c096007 h1:NXY7Fx5mk0kKr9pmTqgs8ussro450H2fUFpFVWZE/OQ=
+github.com/storacha/guppy v0.0.4-0.20251119150728-f0b34c096007/go.mod h1:vB/z5z8Q93H5qGhZnuUMBA7kdri9jJDnWpM9eDavH/Q=
 github.com/storacha/indexing-service v1.11.3 h1:iGVgJcD2PIKZjYyyB/urfmfMBVZcXaJSoNO4tkJc1Hk=
 github.com/storacha/indexing-service v1.11.3/go.mod h1:VVpYKU4X/MQdtFhfyTq/HfQmJyPJMup8EV7ypDqh8Uw=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
