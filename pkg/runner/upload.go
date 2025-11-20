@@ -242,8 +242,14 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		// Clear shard tracker for this upload
 		uploadClient.ResetTrackedData()
 
+		uploadLog.Info("Upload")
+		uploadLog.Infof("  %s", uploadID)
+
 		// Execute upload
 		rootCID, uploadErr := api.ExecuteUpload(ctx, upload)
+		if uploadErr != nil {
+			uploadLog.Infof("    error: %s", uploadErr.Error())
+		}
 		endTime := time.Now()
 
 		// Log shards that were tracked during upload
