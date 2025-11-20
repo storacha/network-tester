@@ -52,6 +52,8 @@ type shardInfo struct {
 	size     int64
 	digest   mh.Multihash
 	location ucan.Capability[assert.LocationCaveats]
+	started  time.Time
+	ended    time.Time
 }
 
 func (r *UploadTestRunner) Run(ctx context.Context) error {
@@ -272,8 +274,8 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 				LocationCommitment: model.Link{Link: cidlink.Link{Cid: info.cid}},
 				URL:                locationURL,
 				Size:               int(info.size),
-				Started:            startTime,
-				Ended:              endTime,
+				Started:            info.started,
+				Ended:              info.ended,
 			})
 			if err != nil {
 				return fmt.Errorf("appending to shard log: %w", err)
@@ -331,11 +333,13 @@ func (c *shardTrackerClient) SpaceBlobAdd(ctx context.Context, content io.Reader
 
 	uploadLog.Infof("Uploading shard: %d bytes", len(data))
 
+	start := time.Now()
 	// Use the Guppy client to upload the shard
 	addedBlob, err := c.Client.SpaceBlobAdd(ctx, bytes.NewReader(data), space, options...)
 	if err != nil {
 		return guppyclient.AddedBlob{}, fmt.Errorf("uploading shard: %w", err)
 	}
+	end := time.Now()
 
 	// Create CID from the returned digest
 	cidV1 := cid.NewCidV1(uint64(multicodec.Car), addedBlob.Digest)
@@ -355,6 +359,8 @@ func (c *shardTrackerClient) SpaceBlobAdd(ctx context.Context, content io.Reader
 		size:     int64(len(data)),
 		digest:   addedBlob.Digest,
 		location: match.Value(),
+		started:  start,
+		ended:    end,
 	}
 
 	return addedBlob, nil
