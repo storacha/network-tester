@@ -284,21 +284,24 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			shardLinks = append(shardLinks, model.Link{Link: cidlink.Link{Cid: info.cid}})
 		}
 
-		if len(shardTracker.indexes) != 1 {
-			return fmt.Errorf("expected 1 index, got %d", len(shardTracker.indexes))
+		uploadRecord := model.Upload{
+			ID:      uploadID,
+			Source:  sourceID,
+			Shards:  model.LinkList(shardLinks),
+			Started: startTime,
+			Ended:   endTime,
+		}
+		if uploadErr.Message == "" {
+			uploadRecord.Root = model.Link{Link: cidlink.Link{Cid: rootCID}}
+			if len(shardTracker.indexes) > 0 {
+				uploadRecord.Index = model.Link{Link: cidlink.Link{Cid: shardTracker.indexes[0]}}
+			}
+		} else {
+			uploadRecord.Error = uploadErr
 		}
 
 		// Log upload
-		err = uploadCSV.Append(model.Upload{
-			ID:      uploadID,
-			Root:    model.Link{Link: cidlink.Link{Cid: rootCID}},
-			Source:  sourceID,
-			Index:   model.Link{Link: cidlink.Link{Cid: shardTracker.indexes[0]}},
-			Shards:  model.LinkList(shardLinks),
-			Error:   uploadErr,
-			Started: startTime,
-			Ended:   endTime,
-		})
+		err = uploadCSV.Append(uploadRecord)
 		if err != nil {
 			return fmt.Errorf("appending to upload log: %w", err)
 		}
