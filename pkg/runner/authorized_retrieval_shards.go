@@ -123,19 +123,20 @@ func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 		log.Infof("      %s @ 0-%d", digestutil.Format(shardDigest), s.Size-1)
 
 		err = r.results.Append(model.Retrieval{
-			ID:        uuid.New(),
-			Region:    r.region,
-			Source:    s.Source,
-			Upload:    s.Upload,
-			Node:      model.DID{DID: nodeID},
-			Shard:     model.Multihash{Multihash: shardDigest},
-			Slice:     model.Multihash{Multihash: shardDigest},
-			Size:      s.Size,
-			Started:   retrieval.Started,
-			Responded: retrieval.Responded,
-			Ended:     retrieval.Ended,
-			Status:    retrieval.Status,
-			Error:     model.Error{Message: retrieval.Error},
+			ID:      uuid.New(),
+			Region:  r.region,
+			Source:  s.Source,
+			Upload:  s.Upload,
+			Node:    model.DID{DID: nodeID},
+			Shard:   model.Multihash{Multihash: shardDigest},
+			Slice:   model.Multihash{Multihash: shardDigest},
+			Size:    s.Size,
+			Started: retrieval.Started,
+			// These are currently not visible from outside the Guppy client
+			// Responded: retrieval.Responded,
+			// Status:    retrieval.Status,
+			Ended: retrieval.Ended,
+			Error: model.Error{Message: retrieval.Error},
 		})
 		if err != nil {
 			return err

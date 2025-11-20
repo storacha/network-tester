@@ -146,10 +146,7 @@ loop:
 			for sliceDigest, position := range slices.Iterator() {
 				retrieval := sliceRetrieval{}
 				retrieval.Started = time.Now()
-				defer func() {
-					retrieval.Ended = time.Now()
-				}()
-
+				
 				_, err := guppyClient.Retrieve(ctx, r.space, locator.Location{
 					Commitment: shardLocationCommitment,
 					Position:   position,
@@ -159,6 +156,8 @@ loop:
 					errDesc := fmt.Sprintf("node: %s, urls: %s, range: bytes=%d-%d, slice: z%s", nodeID.DID().String(), strings.Join(urls, ", "), position.Offset, position.Offset+position.Length-1, sliceDigest.B58String())
 					retrieval.Error = fmt.Errorf("executing authorized retrieval: %s: %w", errDesc, err).Error()
 				}
+
+				retrieval.Ended = time.Now()
 
 				log.Infof("      z%s @ %d-%d", sliceDigest.B58String(), position.Offset, position.Offset+position.Length-1)
 				if retrieval.Error != "" {
@@ -177,8 +176,8 @@ loop:
 					Started: retrieval.Started,
 					// These are currently not visible from outside the Guppy client
 					// Responded: retrieval.Responded,
-					// Ended:     retrieval.Ended,
-					// Status:    retrieval.Status,
+										// Status:    retrieval.Status,
+Ended: retrieval.Ended,
 					Error: model.Error{Message: retrieval.Error},
 				})
 				if err != nil {
