@@ -17,7 +17,7 @@ Test uploads and more to the Storacha Network.
 7. Add private key to `.env`
 8. Create a space for uploads to go to `storacha space create`
     * ⚠️ Ensure you set the correct [environment variables](https://gist.github.com/alanshaw/3c27e67bd9136c789e90950e3fc67644) if using non-production network.
-9. Delegate access to the space `storacha delegation create -c space/blob/add -c space/blob/replicate -c space/index/add -c upload/add -c space/content/retrieve <generated-key-did> --base64`
+9. Delegate access to the space `storacha delegation create -c space/blob/add -c space/blob/replicate -c space/index/add -c filecoin/offer -c upload/add -c space/content/retrieve <generated-key-did> --base64`
 10. Add delegation (proof) to `.env`
 11. Set your region in `.env` to something sensible
 12. Start the test using `npm start`

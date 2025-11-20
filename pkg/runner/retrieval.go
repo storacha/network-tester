@@ -18,6 +18,7 @@ import (
 	"github.com/storacha/go-libstoracha/capabilities/assert"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
+	"github.com/storacha/go-ucanto/did"
 	"github.com/storacha/go-ucanto/ucan"
 	"github.com/storacha/indexing-service/pkg/client"
 	"github.com/storacha/indexing-service/pkg/types"
@@ -56,7 +57,7 @@ loop:
 		log.Infof("    started: %s", u.Started.Format(time.DateTime))
 		log.Infof("    ended: %s", u.Ended.Format(time.DateTime))
 
-		index, err := findIndex(ctx, r.indexer, u.Root, u.Index)
+		index, err := findIndex(ctx, r.indexer, u.Root, u.Index, []delegation.Delegation{})
 		if err != nil {
 			err = r.results.Append(model.Retrieval{
 				ID:     uuid.New(),
@@ -100,12 +101,17 @@ loop:
 				retrieval := testRetrieveSlice(sliceDigest, shardURL, position)
 				log.Infof("      z%s @ %d-%d", sliceDigest.B58String(), position.Offset, position.Offset+position.Length-1)
 
+				nodeDid, err := did.Parse(shardLocationCommitment.With())
+				if err != nil {
+					return fmt.Errorf("parsing node DID from location commitment: %w", err)
+				}
+
 				err = r.results.Append(model.Retrieval{
 					ID:        uuid.New(),
 					Region:    r.region,
 					Source:    u.Source,
 					Upload:    u.ID,
-					Node:      model.DID{DID: shardLocationCommitment.Issuer().DID()},
+					Node:      model.DID{DID: nodeDid},
 					Shard:     model.Multihash{Multihash: shardDigest},
 					Slice:     model.Multihash{Multihash: sliceDigest},
 					Size:      int(position.Length),
@@ -193,9 +199,12 @@ func testRetrieveSlice(slice mh.Multihash, url url.URL, position blobindex.Posit
 	}
 }
 
-func findIndex(ctx context.Context, indexer *client.Client, root model.Link, index model.Link) (blobindex.ShardedDagIndexView, error) {
+func findIndex(ctx context.Context, indexer *client.Client, root model.Link, index model.Link, delegations []delegation.Delegation) (blobindex.ShardedDagIndexView, error) {
+	fmt.Printf(">>> # of Delegations: %d\n", len(delegations))
+
 	result, err := indexer.QueryClaims(ctx, types.Query{
-		Hashes: []mh.Multihash{root.Hash()},
+		Hashes:      []mh.Multihash{root.Hash()},
+		Delegations: delegations,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("querying claims for: %s: %w", root.String(), err)
@@ -224,6 +233,7 @@ func findIndex(ctx context.Context, indexer *client.Client, root model.Link, ind
 	if err != nil {
 		return nil, fmt.Errorf("hashing index body: z%s: %w", index.Hash().B58String(), err)
 	}
+	fmt.Printf(">>> Index body: %s\n", body)
 	if !bytes.Equal(digest, index.Hash()) {
 		return nil, fmt.Errorf("hash integrity failure: z%s: %w", index.Hash().B58String(), err)
 	}
@@ -234,7 +244,7 @@ func findIndex(ctx context.Context, indexer *client.Client, root model.Link, ind
 	return dagIndex, nil
 }
 
-func findLocation(ctx context.Context, indexer *client.Client, shard mh.Multihash) (url.URL, delegation.Delegation, error) {
+func findLocation(ctx context.Context, indexer *client.Client, shard mh.Multihash) (url.URL, ucan.Capability[assert.LocationCaveats], error) {
 	shardResult, err := indexer.QueryClaims(ctx, types.Query{
 		Hashes: []mh.Multihash{shard},
 	})
@@ -259,7 +269,7 @@ func (s source) Delegation() delegation.Delegation {
 
 // extractLocation inspects indexing service query results to find a location
 // commitment for the passed digest. The URL is extracted and returned.
-func extractLocation(digest mh.Multihash, result types.QueryResult) (url.URL, delegation.Delegation, error) {
+func extractLocation(digest mh.Multihash, result types.QueryResult) (url.URL, ucan.Capability[assert.LocationCaveats], error) {
 	bs, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(result.Blocks()))
 	if err != nil {
 		return url.URL{}, nil, err
@@ -281,7 +291,7 @@ func extractLocation(digest mh.Multihash, result types.QueryResult) (url.URL, de
 
 		cap := match.Value()
 		if bytes.Equal(cap.Nb().Content.Hash(), digest) {
-			return cap.Nb().Location[0], d, nil
+			return cap.Nb().Location[0], cap, nil
 		}
 	}
 

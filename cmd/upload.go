@@ -3,6 +3,8 @@ package cmd
 import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/spf13/cobra"
+	grc "github.com/storacha/guppy/pkg/receipt"
+	"github.com/storacha/network-tester/pkg/config"
 	"github.com/storacha/network-tester/pkg/runner"
 )
 
@@ -19,7 +21,9 @@ var uploadCmd = &cobra.Command{
 			dataDir = args[0]
 		}
 
-		runner := runner.NewUploadTestRunner(dataDir)
+		receipts := grc.New(config.UploadServiceURL.JoinPath("receipt"))
+
+		runner := runner.NewUploadTestRunner(dataDir, receipts)
 		err := runner.Run(cmd.Context())
 		cobra.CheckErr(err)
 	},

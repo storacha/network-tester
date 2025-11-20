@@ -13,10 +13,10 @@ require (
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/cobra v1.9.1
-	github.com/storacha/go-libstoracha v0.3.3
+	github.com/storacha/go-libstoracha v0.5.2-0.20251117155844-b4b67870f480
 	github.com/storacha/go-ucanto v0.6.7
-	github.com/storacha/guppy v0.0.4-0.20251031142956-df1589464b02
-	github.com/storacha/indexing-service v1.11.2-0.20251028131819-ee3208737440
+	github.com/storacha/guppy v0.0.4-0.20251119150728-f0b34c096007
+	github.com/storacha/indexing-service v1.11.3
 	modernc.org/sqlite v1.38.0
 )
 

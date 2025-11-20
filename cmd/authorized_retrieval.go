@@ -5,6 +5,7 @@ import (
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/spf13/cobra"
+	grc "github.com/storacha/guppy/pkg/receipt"
 	"github.com/storacha/indexing-service/pkg/client"
 	"github.com/storacha/network-tester/pkg/config"
 	"github.com/storacha/network-tester/pkg/eventlog"
@@ -26,10 +27,11 @@ var authorizedRetrievalCmd = &cobra.Command{
 		indexer, err := client.New(config.IndexingServicePrincipal, *config.IndexingServiceURL)
 		cobra.CheckErr(err)
 
+		receipts := grc.New(config.UploadServiceURL.JoinPath("receipt"))
 		uploads := eventlog.NewCSVReader[model.Upload](uploadsData)
 		results := eventlog.NewCSVWriter[model.Retrieval](os.Stdout)
 
-		runner, err := runner.NewAuthorizedRetrievalTestRunner(config.Region, config.ID(), config.IndexingServicePrincipal, indexer, config.Proof(), uploads, results)
+		runner, err := runner.NewAuthorizedRetrievalTestRunner(config.Region, config.ID(), config.IndexingServicePrincipal, indexer, receipts, config.Proof(), uploads, results)
 		cobra.CheckErr(err)
 
 		err = runner.Run(cmd.Context())
