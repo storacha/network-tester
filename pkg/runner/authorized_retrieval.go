@@ -146,7 +146,7 @@ loop:
 			for sliceDigest, position := range slices.Iterator() {
 				retrieval := sliceRetrieval{}
 				retrieval.Started = time.Now()
-				
+
 				_, err := guppyClient.Retrieve(ctx, r.space, locator.Location{
 					Commitment: shardLocationCommitment,
 					Position:   position,
@@ -176,8 +176,8 @@ loop:
 					Started: retrieval.Started,
 					// These are currently not visible from outside the Guppy client
 					// Responded: retrieval.Responded,
-										// Status:    retrieval.Status,
-Ended: retrieval.Ended,
+					// Status:    retrieval.Status,
+					Ended: retrieval.Ended,
 					Error: model.Error{Message: retrieval.Error},
 				})
 				if err != nil {
@@ -257,7 +257,6 @@ func findLocationWithAuth(
 		space.DID().String(),
 		content.RetrieveCaveats{},
 		delegation.WithProof(proofs...),
-		delegation.WithExpiration(int(time.Now().Add(30*time.Second).Unix())),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating retrieval delegation to indexing service: %w", err)
