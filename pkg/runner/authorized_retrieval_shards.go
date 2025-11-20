@@ -37,6 +37,16 @@ func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 	log.Info("Region")
 	log.Infof("  %s", r.region)
 
+	// Create Guppy client
+	guppyClient, err := guppyclient.NewClient(
+		guppyclient.WithConnection(config.UploadServiceConnection),
+		guppyclient.WithPrincipal(r.id),
+		guppyclient.WithReceiptsClient(r.receipts),
+	)
+	if err != nil {
+		return fmt.Errorf("creating guppy client: %w", err)
+	}
+
 	for s, err := range r.shards.Iterator() {
 		if err != nil {
 			return fmt.Errorf("reading shard from input: %w", err)
@@ -62,24 +72,26 @@ func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 				Error:  model.Error{Message: err.Error()},
 			})
 			if err != nil {
-				return fmt.Errorf("appending retrieval result for failed shard location find: %w", err)
+				return err
 			}
 			continue
 		}
 
 		nodeID, err := did.Parse(shardLocationCommitment.With())
 		if err != nil {
-			return fmt.Errorf("parsing node DID from location commitment: %w", err)
-		}
-
-		// Create Guppy client
-		guppyClient, err := guppyclient.NewClient(
-			guppyclient.WithConnection(config.UploadServiceConnection),
-			guppyclient.WithPrincipal(r.id),
-			guppyclient.WithReceiptsClient(r.receipts),
-		)
-		if err != nil {
-			return fmt.Errorf("creating guppy client: %w", err)
+			err = fmt.Errorf("parsing node DID from location commitment: %w", err)
+			err = r.results.Append(model.Retrieval{
+				ID:     uuid.New(),
+				Region: r.region,
+				Source: s.Source,
+				Upload: s.Upload,
+				Shard:  model.Multihash{Multihash: shardDigest},
+				Error:  model.Error{Message: err.Error()},
+			})
+			if err != nil {
+				return err
+			}
+			continue
 		}
 
 		proofDels := make([]delegation.Delegation, 0, len(r.proofs))

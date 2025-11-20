@@ -44,6 +44,16 @@ func (r *AuthorizedRetrievalTestRunner) Run(ctx context.Context) error {
 	log.Info("Region")
 	log.Infof("  %s", r.region)
 
+	// Create Guppy client
+	guppyClient, err := guppyclient.NewClient(
+		guppyclient.WithConnection(config.UploadServiceConnection),
+		guppyclient.WithPrincipal(r.id),
+		guppyclient.WithReceiptsClient(r.receipts),
+	)
+	if err != nil {
+		return fmt.Errorf("creating guppy client: %w", err)
+	}
+
 loop:
 	for u, err := range r.uploads.Iterator() {
 		if err != nil {
@@ -109,17 +119,19 @@ loop:
 
 			nodeID, err := did.Parse(shardLocationCommitment.With())
 			if err != nil {
-				return fmt.Errorf("parsing node DID from location commitment: %w", err)
-			}
-
-			// Create Guppy client
-			guppyClient, err := guppyclient.NewClient(
-				guppyclient.WithConnection(config.UploadServiceConnection),
-				guppyclient.WithPrincipal(r.id),
-				guppyclient.WithReceiptsClient(r.receipts),
-			)
-			if err != nil {
-				return fmt.Errorf("creating guppy client: %w", err)
+				err = fmt.Errorf("parsing node DID from location commitment: %w", err)
+				err = r.results.Append(model.Retrieval{
+					ID:     uuid.New(),
+					Region: r.region,
+					Source: u.Source,
+					Upload: u.ID,
+					Shard:  model.Multihash{Multihash: shardDigest},
+					Error:  model.Error{Message: err.Error()},
+				})
+				if err != nil {
+					return err
+				}
+				continue loop
 			}
 
 			proofDels := make([]delegation.Delegation, 0, len(r.proofs))
