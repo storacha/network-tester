@@ -34,7 +34,7 @@ var uploadLog = logging.Logger("upload-runner")
 const (
 	minFileSize       = 128
 	maxBytes          = 100 * 1024 * 1024 * 1024 // 100 GB
-	maxPerUploadBytes = 1 * 1024 * 1024 * 1024   // 1 GB
+	maxPerUploadBytes = 1 * 1024 * 1024          // * 1024 * 1024   // 1 GB
 	maxShardSize      = 133_169_152              // Default SHARD_SIZE
 )
 
@@ -54,41 +54,41 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating source log file: %w", err)
 	}
-	defer sourceLogFile.Close()
 	sourceCSV := eventlog.NewCSVWriter[model.Source](sourceLogFile)
 	defer sourceCSV.Flush()
+	defer sourceLogFile.Close()
 
 	shardLogFile, err := os.Create(filepath.Join(r.dataDir, "shards.csv"))
 	if err != nil {
 		return fmt.Errorf("creating shard log file: %w", err)
 	}
-	defer shardLogFile.Close()
 	shardCSV := eventlog.NewCSVWriter[model.Shard](shardLogFile)
 	defer shardCSV.Flush()
+	defer shardLogFile.Close()
 
 	uploadLogFile, err := os.Create(filepath.Join(r.dataDir, "uploads.csv"))
 	if err != nil {
 		return fmt.Errorf("creating upload log file: %w", err)
 	}
-	defer uploadLogFile.Close()
 	uploadCSV := eventlog.NewCSVWriter[model.Upload](uploadLogFile)
 	defer uploadCSV.Flush()
+	defer uploadLogFile.Close()
 
 	replicationLogFile, err := os.Create(filepath.Join(r.dataDir, "replications.csv"))
 	if err != nil {
 		return fmt.Errorf("creating replication log file: %w", err)
 	}
-	defer replicationLogFile.Close()
 	replicationCSV := eventlog.NewCSVWriter[model.Replication](replicationLogFile)
 	defer replicationCSV.Flush()
+	defer replicationLogFile.Close()
 
 	transferLogFile, err := os.Create(filepath.Join(r.dataDir, "transfers.csv"))
 	if err != nil {
 		return fmt.Errorf("creating replica transfer log file: %w", err)
 	}
-	defer transferLogFile.Close()
 	transferCSV := eventlog.NewCSVWriter[model.ReplicaTransfer](transferLogFile)
 	defer transferCSV.Flush()
+	defer transferLogFile.Close()
 
 	// Get config
 	id := config.ID()
@@ -177,6 +177,9 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		})
 		if err != nil {
 			return fmt.Errorf("appending to source log: %w", err)
+		}
+		if err := sourceCSV.Flush(); err != nil {
+			return fmt.Errorf("flushing CSV log: %w", err)
 		}
 
 		// Create in-memory filesystem with the source data
@@ -274,6 +277,9 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("appending to shard log: %w", err)
 			}
+			if err := shardCSV.Flush(); err != nil {
+				return fmt.Errorf("flushing CSV log: %w", err)
+			}
 			shardLinks = append(shardLinks, model.ToLink(info.Link))
 		}
 
@@ -293,6 +299,9 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			err = replicationCSV.Append(replRecord)
 			if err != nil {
 				return fmt.Errorf("appending to replication log: %w", err)
+			}
+			if err := replicationCSV.Flush(); err != nil {
+				return fmt.Errorf("flushing CSV log: %w", err)
 			}
 
 			uploadLog.Info("Replication")
@@ -336,6 +345,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 					}
 					mutex.Lock()
 					transferCSV.Append(transfer.ToModel(err))
+					transferCSV.Flush()
 					mutex.Unlock()
 					wg.Done()
 				}()
@@ -365,6 +375,9 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		err = uploadCSV.Append(uploadRecord)
 		if err != nil {
 			return fmt.Errorf("appending to upload log: %w", err)
+		}
+		if err := uploadCSV.Flush(); err != nil {
+			return fmt.Errorf("flushing CSV log: %w", err)
 		}
 
 		if uploadErr == nil {
