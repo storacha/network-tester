@@ -5,6 +5,7 @@ import (
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/spf13/cobra"
+	grc "github.com/storacha/guppy/pkg/receipt"
 	"github.com/storacha/indexing-service/pkg/client"
 	"github.com/storacha/network-tester/pkg/config"
 	"github.com/storacha/network-tester/pkg/eventlog"
@@ -26,16 +27,18 @@ var authorizedRetrievalShardsCmd = &cobra.Command{
 		indexer, err := client.New(config.IndexingServicePrincipal, *config.IndexingServiceURL)
 		cobra.CheckErr(err)
 
+		receipts := grc.New(config.UploadServiceURL.JoinPath("receipt"))
+
 		shards := eventlog.NewCSVReader[model.Shard](shardsData)
 		results := eventlog.NewCSVWriter[model.Retrieval](os.Stdout)
 
 		runner, err := runner.NewAuthorizedRetrievalShardsTestRunner(
-			runner.AuthorizedRetrievalShardsTestConfig{
-				Region:  config.Region,
-				ID:      config.ID(),
-				Proof:   config.Proof(),
-				Indexer: indexer,
-			},
+			config.Region,
+			config.ID(),
+			config.IndexingServicePrincipal,
+			indexer,
+			receipts,
+			config.Proof(),
 			shards,
 			results,
 		)

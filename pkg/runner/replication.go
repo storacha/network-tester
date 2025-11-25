@@ -109,7 +109,7 @@ func (r *ReplicationTestRunner) Run(ctx context.Context) error {
 		for _, task := range repl.transfers {
 			wg.Add(1)
 			go func() {
-				transfer, err := r.waitForTransfer(ctx, repl.id, task)
+				transfer, err := waitForTransfer(ctx, r.serviceReceipts, repl.id, task)
 
 				log.Info("Transfer")
 				log.Infof("  %s", task.String())
@@ -298,7 +298,7 @@ func (t replicaTransfer) ToModel(err error) model.ReplicaTransfer {
 	return m
 }
 
-func (r *ReplicationTestRunner) waitForTransfer(ctx context.Context, replID uuid.UUID, task ipld.Link) (replicaTransfer, error) {
+func waitForTransfer(ctx context.Context, receipts *grc.Client, replID uuid.UUID, task ipld.Link) (replicaTransfer, error) {
 	transfer := replicaTransfer{
 		id:          task,
 		replication: replID,
@@ -307,7 +307,7 @@ func (r *ReplicationTestRunner) waitForTransfer(ctx context.Context, replID uuid
 
 	// spend around 5 mins waiting for the receipt
 	// the largest shard is 256mb so it should not really take that long
-	rcpt, err := r.serviceReceipts.Poll(ctx, task, grc.WithInterval(5*time.Second), grc.WithRetries(60))
+	rcpt, err := receipts.Poll(ctx, task, grc.WithInterval(5*time.Second), grc.WithRetries(60))
 	transfer.ended = time.Now()
 	if err != nil {
 		return transfer, err
