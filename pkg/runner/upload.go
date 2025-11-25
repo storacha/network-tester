@@ -22,6 +22,7 @@ import (
 	"github.com/storacha/go-libstoracha/capabilities/assert"
 	"github.com/storacha/go-libstoracha/capabilities/blob/replica"
 	"github.com/storacha/go-libstoracha/capabilities/types"
+	"github.com/storacha/go-libstoracha/digestutil"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/ipld"
@@ -249,6 +250,12 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		// Log shards that were tracked during upload
 		shardLinks := make([]model.Link, 0, len(uploadClient.Shards))
 		for _, info := range uploadClient.Shards {
+			uploadLog.Info("Shard")
+			uploadLog.Infof("  %s", info.Link)
+			uploadLog.Infof("    digest: %s", digestutil.Format(info.Digest))
+			uploadLog.Infof("    size: %d", info.Size)
+			uploadLog.Infof("    node: %s", info.NodeID.DID())
+			uploadLog.Infof("    url: %s", info.URL)
 			shardRecord := model.Shard{
 				ID:      model.ToLink(info.Link),
 				Source:  sourceID,
