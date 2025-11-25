@@ -1,15 +1,14 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
-	"io"
 	"io/fs"
 	"math/big"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,20 +16,17 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/multiformats/go-multicodec"
-	mh "github.com/multiformats/go-multihash"
 	"github.com/spf13/afero"
-	"github.com/storacha/go-libstoracha/capabilities/assert"
 	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/ucan"
-	guppyclient "github.com/storacha/guppy/pkg/client"
+	guppy "github.com/storacha/guppy/pkg/client"
 	"github.com/storacha/guppy/pkg/preparation"
 	spacesmodel "github.com/storacha/guppy/pkg/preparation/spaces/model"
-	"github.com/storacha/guppy/pkg/preparation/storacha"
+	"github.com/storacha/guppy/pkg/preparation/sqlrepo"
 	grc "github.com/storacha/guppy/pkg/receipt"
+	"github.com/storacha/network-tester/pkg/client"
 	"github.com/storacha/network-tester/pkg/config"
 	"github.com/storacha/network-tester/pkg/eventlog"
 	"github.com/storacha/network-tester/pkg/model"
-	_ "modernc.org/sqlite"
 )
 
 var uploadLog = logging.Logger("upload-runner")
@@ -38,20 +34,13 @@ var uploadLog = logging.Logger("upload-runner")
 const (
 	minFileSize       = 128
 	maxBytes          = 100 * 1024 * 1024 * 1024 // 100 GB
-	maxPerUploadBytes = 1 * 1024 * 1024 * 1024   // 1 GB
+	maxPerUploadBytes = 1 * 1024 * 1024          // * 1024 * 1024   // 1 GB
 	maxShardSize      = 133_169_152              // Default SHARD_SIZE
 )
 
 type UploadTestRunner struct {
 	dataDir  string
 	receipts *grc.Client
-}
-
-type shardInfo struct {
-	cid      cid.Cid
-	size     int64
-	digest   mh.Multihash
-	location ucan.Capability[assert.LocationCaveats]
 }
 
 func (r *UploadTestRunner) Run(ctx context.Context) error {
@@ -65,25 +54,41 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating source log file: %w", err)
 	}
-	defer sourceLogFile.Close()
 	sourceCSV := eventlog.NewCSVWriter[model.Source](sourceLogFile)
 	defer sourceCSV.Flush()
+	defer sourceLogFile.Close()
 
 	shardLogFile, err := os.Create(filepath.Join(r.dataDir, "shards.csv"))
 	if err != nil {
 		return fmt.Errorf("creating shard log file: %w", err)
 	}
-	defer shardLogFile.Close()
 	shardCSV := eventlog.NewCSVWriter[model.Shard](shardLogFile)
 	defer shardCSV.Flush()
+	defer shardLogFile.Close()
 
 	uploadLogFile, err := os.Create(filepath.Join(r.dataDir, "uploads.csv"))
 	if err != nil {
 		return fmt.Errorf("creating upload log file: %w", err)
 	}
-	defer uploadLogFile.Close()
 	uploadCSV := eventlog.NewCSVWriter[model.Upload](uploadLogFile)
 	defer uploadCSV.Flush()
+	defer uploadLogFile.Close()
+
+	replicationLogFile, err := os.Create(filepath.Join(r.dataDir, "replications.csv"))
+	if err != nil {
+		return fmt.Errorf("creating replication log file: %w", err)
+	}
+	replicationCSV := eventlog.NewCSVWriter[model.Replication](replicationLogFile)
+	defer replicationCSV.Flush()
+	defer replicationLogFile.Close()
+
+	transferLogFile, err := os.Create(filepath.Join(r.dataDir, "transfers.csv"))
+	if err != nil {
+		return fmt.Errorf("creating replica transfer log file: %w", err)
+	}
+	transferCSV := eventlog.NewCSVWriter[model.ReplicaTransfer](transferLogFile)
+	defer transferCSV.Flush()
+	defer transferLogFile.Close()
 
 	// Get config
 	id := config.ID()
@@ -98,10 +103,10 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 	uploadLog.Infof("Space: %s", spaceDID)
 
 	// Create Guppy client
-	guppyClient, err := guppyclient.NewClient(
-		guppyclient.WithConnection(config.UploadServiceConnection),
-		guppyclient.WithPrincipal(id),
-		guppyclient.WithReceiptsClient(r.receipts),
+	guppyClient, err := guppy.NewClient(
+		guppy.WithConnection(config.UploadServiceConnection),
+		guppy.WithPrincipal(id),
+		guppy.WithReceiptsClient(r.receipts),
 	)
 	if err != nil {
 		return fmt.Errorf("creating guppy client: %w", err)
@@ -113,29 +118,33 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		return fmt.Errorf("adding proofs to client: %w", err)
 	}
 
-	// Create preparation database
 	dbPath := filepath.Join(r.dataDir, "upload.db")
-	err = os.RemoveAll(dbPath)
-	if err != nil {
-		return fmt.Errorf("removing existing database: %w", err)
-	}
-	repo, err := preparation.OpenRepo(ctx, dbPath)
-	if err != nil {
-		return fmt.Errorf("opening repository: %w", err)
-	}
-	defer repo.Close()
+	var repo *sqlrepo.Repo
+	defer func() {
+		if repo != nil {
+			repo.Close()
+		}
+	}()
 
-	// Track shards as they're uploaded
-	shardTracker := &shardTrackerClient{
-		Client: guppyClient,
-		space:  spaceDID,
-		shards: make(map[string]*shardInfo),
-	}
+	uploadClient := client.New(guppyClient)
 
 	totalSize := int64(0)
 	totalSources := 0
 
 	for totalSize < maxBytes {
+		// Create preparation database
+		err = os.RemoveAll(dbPath)
+		if err != nil {
+			return fmt.Errorf("removing existing database: %w", err)
+		}
+		if repo != nil {
+			repo.Close()
+		}
+		repo, err = preparation.OpenRepo(ctx, dbPath)
+		if err != nil {
+			return fmt.Errorf("opening repository: %w", err)
+		}
+
 		maxSize := maxPerUploadBytes
 		if maxBytes-totalSize < int64(maxSize) {
 			maxSize = int(maxBytes - totalSize)
@@ -169,6 +178,9 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("appending to source log: %w", err)
 		}
+		if err := sourceCSV.Flush(); err != nil {
+			return fmt.Errorf("flushing CSV log: %w", err)
+		}
 
 		// Create in-memory filesystem with the source data
 		memFS := afero.NewMemMapFs()
@@ -194,7 +206,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		// Use the preparation API with custom FS provider
 		api := preparation.NewAPI(
 			repo,
-			shardTracker,
+			uploadClient,
 			preparation.WithGetLocalFSForPathFn(func(path string) (fs.FS, error) {
 				return afero.NewIOFS(memFS), nil
 			}),
@@ -231,77 +243,144 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		upload := uploads[0]
 
 		// Clear shard tracker for this upload
-		shardTracker.shards = make(map[string]*shardInfo)
+		uploadClient.ResetTrackedData()
+
+		uploadLog.Infof("Upload: %s", uploadID)
 
 		// Execute upload
-		rootCID, err := api.ExecuteUpload(ctx, upload)
-		var uploadErr model.Error
-		if err != nil {
-			uploadErr = model.Error{Message: err.Error()}
-			uploadLog.Errorf("Upload failed: %v", err)
+		rootCID, uploadErr := api.ExecuteUpload(ctx, upload)
+		if uploadErr != nil {
+			uploadLog.Infof("    error: %s", uploadErr.Error())
 		}
-
 		endTime := time.Now()
 
 		// Log shards that were tracked during upload
-		shardLinks := make([]model.Link, 0, len(shardTracker.shards))
-		for _, info := range shardTracker.shards {
-			var nodeID model.DID
-			var locationURL model.URL
-			if info.location != nil {
-				did, err := did.Parse(info.location.With())
-				if err != nil {
-					return fmt.Errorf("parsing node DID: %w", err)
-				}
-				nodeID = model.DID{DID: did}
-				locationCaveats := info.location.Nb()
-				if len(locationCaveats.Location) == 0 {
-					return fmt.Errorf("no locations in location caveats")
-				}
-				if len(locationCaveats.Location) > 1 {
-					uploadLog.Warnf("multiple locations in location caveats, using the first one")
-				}
-				locationURL = model.URL(locationCaveats.Location[0])
+		shardLinks := make([]model.Link, 0, len(uploadClient.Shards))
+		for _, info := range uploadClient.Shards {
+			shardRecord := model.Shard{
+				ID:      model.ToLink(info.Link),
+				Source:  sourceID,
+				Upload:  uploadID,
+				Node:    model.DID{DID: info.NodeID},
+				URL:     model.URL(info.URL),
+				Size:    int(info.Size),
+				Started: info.Started,
+				Ended:   info.Ended,
 			}
-
-			err = shardCSV.Append(model.Shard{
-				ID:                 model.Link{Link: cidlink.Link{Cid: info.cid}},
-				Source:             sourceID,
-				Upload:             uploadID,
-				Node:               nodeID,
-				LocationCommitment: model.Link{Link: cidlink.Link{Cid: info.cid}},
-				URL:                locationURL,
-				Size:               int(info.size),
-				Started:            startTime,
-				Ended:              endTime,
-			})
+			if info.LocationCommitment != nil {
+				shardRecord.LocationCommitment = model.ToLink(info.LocationCommitment.Link())
+			}
+			if info.Error != nil {
+				shardRecord.Error = model.Error{Message: info.Error.Error()}
+			}
+			err = shardCSV.Append(shardRecord)
 			if err != nil {
 				return fmt.Errorf("appending to shard log: %w", err)
 			}
-
-			shardLinks = append(shardLinks, model.Link{Link: cidlink.Link{Cid: info.cid}})
+			if err := shardCSV.Flush(); err != nil {
+				return fmt.Errorf("flushing CSV log: %w", err)
+			}
+			shardLinks = append(shardLinks, model.ToLink(info.Link))
 		}
 
-		if len(shardTracker.indexes) != 1 {
-			return fmt.Errorf("expected 1 index, got %d", len(shardTracker.indexes))
+		for _, info := range uploadClient.Replications {
+			shardLink := cidlink.Link{Cid: cid.NewCidV1(uint64(multicodec.Car), info.Digest)}
+			replRecord := model.Replication{
+				ID:        uuid.New(),
+				Region:    config.Region,
+				Shard:     model.Link{Link: shardLink},
+				Replicas:  int(info.Replicas),
+				Transfers: model.ToLinkList(info.Transfers),
+				Requested: info.Requested,
+			}
+			if info.Error != nil {
+				replRecord.Error = model.Error{Message: info.Error.Error()}
+			}
+			err = replicationCSV.Append(replRecord)
+			if err != nil {
+				return fmt.Errorf("appending to replication log: %w", err)
+			}
+			if err := replicationCSV.Flush(); err != nil {
+				return fmt.Errorf("flushing CSV log: %w", err)
+			}
+
+			uploadLog.Info("Replication")
+			uploadLog.Infof("  %s", replRecord.ID)
+			uploadLog.Infof("    shard: %s", shardLink)
+			uploadLog.Infof("    replicas: %d", info.Replicas)
+			if len(info.Transfers) > 0 {
+				uploadLog.Info("    transfers:")
+				for _, s := range info.Transfers {
+					uploadLog.Infof("      %s", s.String())
+				}
+			}
+			uploadLog.Infof("    requested: %s", info.Requested.Format(time.DateTime))
+
+			if info.Error != nil {
+				uploadLog.Infof("    error: %s", info.Error.Error())
+				continue
+			}
+
+			var wg sync.WaitGroup
+			var mutex sync.Mutex
+			for _, task := range info.Transfers {
+				wg.Add(1)
+				go func() {
+					uploadLog.Info("Waiting for transfer...")
+					uploadLog.Infof("  %s", task.String())
+
+					transfer, err := waitForTransfer(ctx, r.receipts, replRecord.ID, task)
+
+					uploadLog.Info("Transfer")
+					uploadLog.Infof("  %s", task.String())
+					if transfer.node != did.Undef {
+						uploadLog.Infof("    node: %s", transfer.node.String())
+					}
+					if transfer.url != nil {
+						uploadLog.Infof("    url: %s", transfer.url.String())
+					}
+					uploadLog.Infof("    elapsed: %s", transfer.ended.Sub(transfer.started).String())
+					if err != nil {
+						uploadLog.Infof("    error: %s", err.Error())
+					}
+					mutex.Lock()
+					transferCSV.Append(transfer.ToModel(err))
+					transferCSV.Flush()
+					mutex.Unlock()
+					wg.Done()
+				}()
+			}
+			wg.Wait()
+
+			uploadLog.Infof("%s replicated", shardLink)
+		}
+
+		uploadRecord := model.Upload{
+			ID:      uploadID,
+			Source:  sourceID,
+			Shards:  model.LinkList(shardLinks),
+			Started: startTime,
+			Ended:   endTime,
+		}
+		if uploadErr == nil {
+			uploadRecord.Root = model.Link{Link: cidlink.Link{Cid: rootCID}}
+			if len(uploadClient.Indexes) > 0 {
+				uploadRecord.Index = model.Link{Link: cidlink.Link{Cid: uploadClient.Indexes[0]}}
+			}
+		} else {
+			uploadRecord.Error = model.Error{Message: uploadErr.Error()}
 		}
 
 		// Log upload
-		err = uploadCSV.Append(model.Upload{
-			ID:      uploadID,
-			Root:    model.Link{Link: cidlink.Link{Cid: rootCID}},
-			Source:  sourceID,
-			Index:   model.Link{Link: cidlink.Link{Cid: shardTracker.indexes[0]}},
-			Shards:  model.LinkList(shardLinks),
-			Error:   uploadErr,
-			Started: startTime,
-			Ended:   endTime,
-		})
+		err = uploadCSV.Append(uploadRecord)
 		if err != nil {
 			return fmt.Errorf("appending to upload log: %w", err)
 		}
+		if err := uploadCSV.Flush(); err != nil {
+			return fmt.Errorf("flushing CSV log: %w", err)
+		}
 
-		if uploadErr.Message == "" {
+		if uploadErr == nil {
 			totalSources++
 			totalSize += int64(calculateTotalSize(sourceData))
 		}
@@ -310,59 +389,6 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// shardTrackerClient wraps a Guppy client and tracks uploaded shards
-type shardTrackerClient struct {
-	*guppyclient.Client
-	space   did.DID
-	shards  map[string]*shardInfo
-	indexes []cid.Cid
-}
-
-var _ storacha.Client = (*shardTrackerClient)(nil)
-
-func (c *shardTrackerClient) SpaceBlobAdd(ctx context.Context, content io.Reader, space did.DID, options ...guppyclient.SpaceBlobAddOption) (guppyclient.AddedBlob, error) {
-	// Read content to get size for tracking
-	data, err := io.ReadAll(content)
-	if err != nil {
-		return guppyclient.AddedBlob{}, fmt.Errorf("reading content: %w", err)
-	}
-
-	uploadLog.Infof("Uploading shard: %d bytes", len(data))
-
-	// Use the Guppy client to upload the shard
-	addedBlob, err := c.Client.SpaceBlobAdd(ctx, bytes.NewReader(data), space, options...)
-	if err != nil {
-		return guppyclient.AddedBlob{}, fmt.Errorf("uploading shard: %w", err)
-	}
-
-	// Create CID from the returned digest
-	cidV1 := cid.NewCidV1(uint64(multicodec.Car), addedBlob.Digest)
-	uploadLog.Infof("Shard uploaded: %s", cidV1)
-
-	match, err := assert.Location.Match(source{
-		capability: addedBlob.Location.Capabilities()[0],
-		delegation: addedBlob.Location,
-	})
-	if err != nil {
-		return guppyclient.AddedBlob{}, fmt.Errorf("expected `assert/location` capability in location assertion")
-	}
-
-	// Track the shard
-	c.shards[cidV1.String()] = &shardInfo{
-		cid:      cidV1,
-		size:     int64(len(data)),
-		digest:   addedBlob.Digest,
-		location: match.Value(),
-	}
-
-	return addedBlob, nil
-}
-
-func (c *shardTrackerClient) SpaceIndexAdd(ctx context.Context, indexCID cid.Cid, indexSize uint64, rootCID cid.Cid, space did.DID) error {
-	c.indexes = append(c.indexes, indexCID)
-	return c.Client.SpaceIndexAdd(ctx, indexCID, indexSize, rootCID, space)
 }
 
 func generateSource(maxSize int) (string, map[string][]byte, error) {
