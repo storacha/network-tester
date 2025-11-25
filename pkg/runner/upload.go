@@ -255,7 +255,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			uploadLog.Infof("    digest: %s", digestutil.Format(info.Digest))
 			uploadLog.Infof("    size: %d", info.Size)
 			uploadLog.Infof("    node: %s", info.NodeID.DID())
-			uploadLog.Infof("    url: %s", info.URL)
+			uploadLog.Infof("    url: %s", info.URL.String())
 			shardRecord := model.Shard{
 				ID:      model.ToLink(info.Link),
 				Source:  sourceID,
