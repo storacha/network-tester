@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -19,6 +20,7 @@ import (
 	"github.com/storacha/go-libstoracha/capabilities/assert"
 	"github.com/storacha/go-libstoracha/capabilities/space/content"
 	"github.com/storacha/go-libstoracha/digestutil"
+	rclient "github.com/storacha/go-ucanto/client/retrieval"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
 	"github.com/storacha/go-ucanto/core/ipld"
@@ -173,38 +175,43 @@ loop:
 
 			for sliceDigest, position := range slices.Iterator() {
 				retrieval := sliceRetrieval{}
-				retrieval.Started = time.Now()
 
+				httpClient := http.Client{}
+				transport := ttfbTransport{}
+				httpClient.Transport = &transport
+
+				retrieval.Started = time.Now()
 				_, err := r.guppy.Retrieve(ctx, r.space, locator.Location{
 					Commitment: shardLocationCommitment,
 					Position:   position,
 					Digest:     sliceDigest,
-				})
+				}, rclient.WithClient(&httpClient))
 				if err != nil {
 					retrievalLog.Infof("    error: %s", err.Error())
 					errDesc := fmt.Sprintf("node: %s, urls: %s, range: bytes=%d-%d, slice: %s", nodeID.DID().String(), strings.Join(urls, ", "), position.Offset, position.Offset+position.Length-1, digestutil.Format(sliceDigest))
 					retrieval.Error = fmt.Errorf("executing authorized retrieval: %s: %w", errDesc, err).Error()
 				}
 
+				retrieval.Responded = retrieval.Started.Add(transport.TTFB)
+				retrieval.Status = transport.StatusCode
 				retrieval.Ended = time.Now()
 
 				retrievalLog.Infof("      %s @ %d-%d", digestutil.Format(sliceDigest), position.Offset, position.Offset+position.Length-1)
 
 				err = results.Append(model.Retrieval{
-					ID:      uuid.New(),
-					Region:  r.region,
-					Source:  u.Source,
-					Upload:  u.ID,
-					Node:    model.DID{DID: nodeID},
-					Shard:   model.Multihash{Multihash: shardDigest},
-					Slice:   model.Multihash{Multihash: sliceDigest},
-					Size:    int(position.Length),
-					Started: retrieval.Started,
-					// These are currently not visible from outside the Guppy client
-					// Responded: retrieval.Responded,
-					// Status:    retrieval.Status,
-					Ended: retrieval.Ended,
-					Error: model.Error{Message: retrieval.Error},
+					ID:        uuid.New(),
+					Region:    r.region,
+					Source:    u.Source,
+					Upload:    u.ID,
+					Node:      model.DID{DID: nodeID},
+					Shard:     model.Multihash{Multihash: shardDigest},
+					Slice:     model.Multihash{Multihash: sliceDigest},
+					Size:      int(position.Length),
+					Started:   retrieval.Started,
+					Responded: retrieval.Responded,
+					Status:    retrieval.Status,
+					Ended:     retrieval.Ended,
+					Error:     model.Error{Message: retrieval.Error},
 				})
 				if err != nil {
 					return err
@@ -373,4 +380,20 @@ func ResourceFromDelegation(d delegation.Delegation) (did.DID, error) {
 		}
 	}
 	return did.Parse(resource)
+}
+
+type ttfbTransport struct {
+	StatusCode int
+	TTFB       time.Duration
+}
+
+func (t *ttfbTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	r, err := http.DefaultTransport.RoundTrip(req)
+	t.StatusCode = r.StatusCode
+	t.TTFB = time.Since(start)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }

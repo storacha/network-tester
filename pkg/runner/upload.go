@@ -45,7 +45,7 @@ var uploadLog = logging.Logger("upload-runner")
 const (
 	minFileSize       = 128
 	maxBytes          = 20 * 1024 * 1024 * 1024 // 20 GB
-	maxPerUploadBytes = 1 * 1024 * 1024 * 1024  // 1 GB
+	maxPerUploadBytes = 1 * 1024 * 1024         //* 1024  // 1 GB
 	maxShardSize      = 133_169_152             // Default SHARD_SIZE
 )
 
