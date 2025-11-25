@@ -260,6 +260,9 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			if info.URL != (url.URL{}) {
 				uploadLog.Infof("    url: %s", info.URL.String())
 			}
+			if info.Error != nil {
+				uploadLog.Infof("    error: %s", info.Error.Error())
+			}
 			shardRecord := model.Shard{
 				ID:      model.ToLink(info.Link),
 				Source:  sourceID,
