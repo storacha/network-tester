@@ -4,14 +4,8 @@ Test uploads and more to the Storacha Network.
 
 ## Getting started
 
-### Upload Testing
-
-#### JS Uploads
-
-1. Install Node.js
+1. Install Go
 2. Clone the repo and cd into it
-3. Install project dependencies `npm install`
-4. Install the storacha CLI `npm install -g @storacha/cli`
 5. Copy `.env.tpl` to `.env`
 6. Create an identity for the upload tester `storacha key create`
 7. Add private key to `.env`
@@ -20,41 +14,28 @@ Test uploads and more to the Storacha Network.
 9. Delegate access to the space `storacha delegation create -c space/blob/add -c space/blob/replicate -c space/index/add -c filecoin/offer -c upload/add -c space/content/retrieve <generated-key-did> --base64`
 10. Add delegation (proof) to `.env`
 11. Set your region in `.env` to something sensible
-12. Start the test using `npm start`
+12. Start the test (see below)
+
+### Upload Testing
+
+Start the test using `go run . upload`.
 
 The script generates event logs to the following files:
 
 * `data/source.csv` - information about the randomly generated source data. Each source has an ID that is referenced in other event logs.
 * `data/shards.csv` - information about each shard that is stored to the service as part of an "upload".
 * `data/uploads.csv` - information about each upload that is performed, i.e. the shards and the DAG root CID.
-
-#### Go Uploads
-
-1. Install Go
-2. Start the test using `go run . upload`
-
-The script generates the same event logs as the JS version.
+* `data/replications.csv` - information about replication tasks requested for a given shard.
+* `data/transfers.csv` - tracking of transfers for replicas.
 
 ### Retrieval Testing
 
 1. Run the upload tests
-2. Install Go
-3. Start the test using `go run . retrieval ./data/uploads.csv >> ./data/retrievals.csv`
+2. Start the test using `go run . retrieval`
 
 The script generates event logs to the following files:
 
-* `data/retrieval.csv` - .
-
-### Replication Testing
-
-1. Run the upload tests
-2. Install Go
-3. Start the test using `go run . replication ./data/shards.csv ./data/replications.csv ./data/transfers.csv`
-
-The script generates event logs to the following files:
-
-* `data/replications.csv` - information about replication tasks requested for a given shard.
-* `data/transfers.csv` - tracking of transfers for replicas.
+* `data/retrievals.csv` - information about the retrievals performed during the test.
 
 ## About
 
@@ -62,7 +43,7 @@ The upload tests aim to upload a configured number of bytes to the service (defa
 
 For a given upload the script will generate either a single file, directory of files or a sharded diretory of files of varying sizes. The maximum size of a single upload can also be configured , but is set by default to 4 GiB.
 
-All configuration values for upload tests can be found in [config.js](./src/config.js).
+All configuration values for upload tests can be found in [config.js](./pkg/runner/upload.go).
 
 We collect information about the data sources created, the shards that are transferred, replications requested and the uploads that are registered:
 

@@ -1,39 +1,47 @@
 package cmd
 
 import (
-	"os"
-
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/spf13/cobra"
+	guppyclient "github.com/storacha/guppy/pkg/client"
+	grc "github.com/storacha/guppy/pkg/receipt"
 	"github.com/storacha/indexing-service/pkg/client"
 	"github.com/storacha/network-tester/pkg/config"
-	"github.com/storacha/network-tester/pkg/eventlog"
-	"github.com/storacha/network-tester/pkg/model"
 	"github.com/storacha/network-tester/pkg/runner"
 )
 
 var retrievalCmd = &cobra.Command{
-	Use:   "retrieval <path to upload csv>",
-	Short: "Run retrieval tests",
-	Long:  "Runs retrieval tests using the passed CSV upload data.",
-	Args:  cobra.MinimumNArgs(1),
+	Use:   "retrieval [data directory]",
+	Short: "Run UCAN authorized retrieval tests",
+	Long:  "Runs UCAN authorized retrieval tests. Reads from <datadir>/uploads.csv and writes to <datadir>/retrievals.csv",
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		logging.SetLogLevel("*", "info")
 
-		uploadsData, err := os.Open(args[0])
-		cobra.CheckErr(err)
+		dataDir := "data"
+		if len(args) > 0 {
+			dataDir = args[0]
+		}
 
 		indexer, err := client.New(config.IndexingServicePrincipal, *config.IndexingServiceURL)
 		cobra.CheckErr(err)
 
-		uploads := eventlog.NewCSVReader[model.Upload](uploadsData)
-		results := eventlog.NewCSVWriter[model.Retrieval](os.Stdout)
+		receipts := grc.New(config.UploadServiceURL.JoinPath("receipt"))
 
-		runner := runner.NewRetrievalTestRunner(config.Region, indexer, uploads, results)
-		err = runner.Run(cmd.Context())
+		guppy, err := guppyclient.NewClient(
+			guppyclient.WithConnection(config.UploadServiceConnection),
+			guppyclient.WithPrincipal(config.ID()),
+			guppyclient.WithReceiptsClient(receipts),
+		)
 		cobra.CheckErr(err)
 
-		err = results.Flush()
+		err = guppy.AddProofs(config.Proof())
+		cobra.CheckErr(err)
+
+		runner, err := runner.NewRetrievalTestRunner(config.Region, config.ID(), config.IndexingServicePrincipal, indexer, guppy, receipts, config.Proof(), dataDir)
+		cobra.CheckErr(err)
+
+		err = runner.Run(cmd.Context())
 		cobra.CheckErr(err)
 	},
 }

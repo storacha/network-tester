@@ -3,9 +3,11 @@ package runner
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io/fs"
 	"math/big"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,8 +19,16 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/spf13/afero"
+	"github.com/storacha/go-libstoracha/capabilities/assert"
+	"github.com/storacha/go-libstoracha/capabilities/blob/replica"
+	"github.com/storacha/go-libstoracha/capabilities/types"
+	"github.com/storacha/go-ucanto/core/dag/blockstore"
+	"github.com/storacha/go-ucanto/core/delegation"
+	"github.com/storacha/go-ucanto/core/ipld"
+	"github.com/storacha/go-ucanto/core/result"
 	"github.com/storacha/go-ucanto/did"
-	guppy "github.com/storacha/guppy/pkg/client"
+	"github.com/storacha/go-ucanto/principal"
+	guppyclient "github.com/storacha/guppy/pkg/client"
 	"github.com/storacha/guppy/pkg/preparation"
 	spacesmodel "github.com/storacha/guppy/pkg/preparation/spaces/model"
 	"github.com/storacha/guppy/pkg/preparation/sqlrepo"
@@ -27,20 +37,27 @@ import (
 	"github.com/storacha/network-tester/pkg/config"
 	"github.com/storacha/network-tester/pkg/eventlog"
 	"github.com/storacha/network-tester/pkg/model"
+	"github.com/storacha/network-tester/pkg/util"
 )
 
 var uploadLog = logging.Logger("upload-runner")
 
 const (
-	minFileSize       = 128
-	maxBytes          = 100 * 1024 * 1024 * 1024 // 100 GB
-	maxPerUploadBytes = 1 * 1024 * 1024          // * 1024 * 1024   // 1 GB
-	maxShardSize      = 133_169_152              // Default SHARD_SIZE
+	minFileSize = 128
+	maxBytes    = 100 * 1024 * 1024 * 1024 // 100 GB
+	// maxPerUploadBytes = 1 * 1024 * 1024 * 1024   // 1 GB
+	maxPerUploadBytes = 1 * 1024 * 1024 // 1 MB
+	maxShardSize      = 133_169_152     // Default SHARD_SIZE
 )
 
 type UploadTestRunner struct {
-	dataDir  string
+	region   string
+	id       principal.Signer
 	receipts *grc.Client
+	guppy    *guppyclient.Client
+	space    did.DID
+	proofs   delegation.Proofs
+	dataDir  string
 }
 
 func (r *UploadTestRunner) Run(ctx context.Context) error {
@@ -90,33 +107,9 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 	defer transferCSV.Flush()
 	defer transferLogFile.Close()
 
-	// Get config
-	id := config.ID()
-	proof := config.Proof()
-	spaceDID, err := did.Parse(proof.Capabilities()[0].With())
-	if err != nil {
-		return fmt.Errorf("parsing space DID: %w", err)
-	}
-
-	uploadLog.Infof("Region: %s", config.Region)
-	uploadLog.Infof("Agent: %s", id.DID())
-	uploadLog.Infof("Space: %s", spaceDID)
-
-	// Create Guppy client
-	guppyClient, err := guppy.NewClient(
-		guppy.WithConnection(config.UploadServiceConnection),
-		guppy.WithPrincipal(id),
-		guppy.WithReceiptsClient(r.receipts),
-	)
-	if err != nil {
-		return fmt.Errorf("creating guppy client: %w", err)
-	}
-
-	// Add the proof delegation to the client
-	err = guppyClient.AddProofs(proof)
-	if err != nil {
-		return fmt.Errorf("adding proofs to client: %w", err)
-	}
+	uploadLog.Infof("Region: %s", r.region)
+	uploadLog.Infof("Agent: %s", r.id.DID())
+	uploadLog.Infof("Space: %s", r.space)
 
 	dbPath := filepath.Join(r.dataDir, "upload.db")
 	var repo *sqlrepo.Repo
@@ -126,7 +119,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		}
 	}()
 
-	uploadClient := client.New(guppyClient)
+	uploadClient := client.New(r.guppy)
 
 	totalSize := int64(0)
 	totalSources := 0
@@ -213,7 +206,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		)
 
 		// Create space and source
-		_, err = api.FindOrCreateSpace(ctx, spaceDID, sourceID.String(), spacesmodel.WithShardSize(maxShardSize))
+		_, err = api.FindOrCreateSpace(ctx, r.space, sourceID.String(), spacesmodel.WithShardSize(maxShardSize))
 		if err != nil {
 			return fmt.Errorf("creating space: %w", err)
 		}
@@ -223,13 +216,13 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			return fmt.Errorf("creating source: %w", err)
 		}
 
-		err = api.AddSourceToSpace(ctx, spaceDID, source.ID())
+		err = api.AddSourceToSpace(ctx, r.space, source.ID())
 		if err != nil {
 			return fmt.Errorf("adding source to space: %w", err)
 		}
 
 		// Create uploads
-		uploads, err := api.FindOrCreateUploads(ctx, spaceDID)
+		uploads, err := api.FindOrCreateUploads(ctx, r.space)
 		if err != nil {
 			return fmt.Errorf("creating uploads: %w", err)
 		}
@@ -420,6 +413,112 @@ func calculateTotalSize(files map[string][]byte) int {
 	return total
 }
 
-func NewUploadTestRunner(dataDir string, receipts *grc.Client) *UploadTestRunner {
-	return &UploadTestRunner{dataDir: dataDir, receipts: receipts}
+func NewUploadTestRunner(
+	region string,
+	id principal.Signer,
+	guppy *guppyclient.Client,
+	receipts *grc.Client,
+	proof delegation.Delegation,
+	dataDir string,
+) (*UploadTestRunner, error) {
+	space, err := ResourceFromDelegation(proof)
+	if err != nil {
+		return nil, err
+	}
+	proofs := []delegation.Proof{delegation.FromDelegation(proof)}
+	return &UploadTestRunner{
+		id:       id,
+		guppy:    guppy,
+		region:   region,
+		dataDir:  dataDir,
+		receipts: receipts,
+		proofs:   proofs,
+		space:    space,
+	}, nil
+}
+
+type replicaTransfer struct {
+	id                 ipld.Link
+	replication        uuid.UUID
+	locationCommitment ipld.Link
+	node               did.DID
+	url                *url.URL
+	started            time.Time
+	ended              time.Time
+}
+
+func (t replicaTransfer) ToModel(err error) model.ReplicaTransfer {
+	m := model.ReplicaTransfer{
+		ID:                 model.ToLink(t.id),
+		Replication:        t.replication,
+		LocationCommitment: model.ToLink(t.locationCommitment),
+		Node:               model.DID{DID: t.node},
+		Started:            t.started,
+		Ended:              t.ended,
+	}
+	if t.url != nil {
+		m.URL = model.URL(*t.url)
+	}
+	if err != nil {
+		m.Error = model.Error{Message: err.Error()}
+	}
+	return m
+}
+
+func waitForTransfer(ctx context.Context, receipts *grc.Client, replID uuid.UUID, task ipld.Link) (replicaTransfer, error) {
+	transfer := replicaTransfer{
+		id:          task,
+		replication: replID,
+		started:     time.Now(),
+	}
+
+	// spend around 5 mins waiting for the receipt
+	// the largest shard is 256mb so it should not really take that long
+	rcpt, err := receipts.Poll(ctx, task, grc.WithInterval(5*time.Second), grc.WithRetries(60))
+	transfer.ended = time.Now()
+	if err != nil {
+		return transfer, err
+	}
+
+	o, x := result.Unwrap(rcpt.Out())
+	if x != nil {
+		f, err := util.BindFailure(x)
+		if err != nil {
+			return transfer, err
+		}
+		return transfer, fmt.Errorf("invocation failure: %+v", f)
+	}
+
+	transferOk, err := ipld.Rebind[replica.TransferOk](o, replica.TransferOkType(), types.Converters...)
+	if err != nil {
+		return transfer, fmt.Errorf("rebinding receipt for transfer: %w", err)
+	}
+	transfer.locationCommitment = transferOk.Site
+
+	br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(rcpt.Blocks()))
+	if err != nil {
+		return transfer, fmt.Errorf("iterating receipt blocks: %w", err)
+	}
+
+	lcomm, err := delegation.NewDelegationView(transferOk.Site, br)
+	if err != nil {
+		return transfer, fmt.Errorf("creating location commitment: %w", err)
+	}
+	transfer.node = lcomm.Issuer().DID()
+
+	if len(lcomm.Capabilities()) == 0 {
+		return transfer, errors.New("missing capabilities in location commitment")
+	}
+
+	nb, err := assert.LocationCaveatsReader.Read(lcomm.Capabilities()[0].Nb())
+	if err != nil {
+		return transfer, fmt.Errorf("reading location commitment caveats: %w", err)
+	}
+
+	if len(nb.Location) == 0 {
+		return transfer, errors.New("missing location URI in location commitment")
+	}
+	transfer.url = &nb.Location[0]
+
+	return transfer, nil
 }

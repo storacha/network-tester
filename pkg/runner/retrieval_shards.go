@@ -3,9 +3,12 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
+	"path"
 	"time"
 
 	"github.com/google/uuid"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/storacha/go-libstoracha/blobindex"
 	"github.com/storacha/go-libstoracha/digestutil"
 	"github.com/storacha/go-ucanto/core/delegation"
@@ -21,21 +24,38 @@ import (
 	"github.com/storacha/network-tester/pkg/model"
 )
 
-type AuthorizedRetrievalShardsTestRunner struct {
+var retrievalShardsLog = logging.Logger("retrieval-shards-runner")
+
+type RetrievalShardsTestRunner struct {
 	region                   string
 	id                       principal.Signer
 	indexingServicePrincipal ucan.Principal
 	indexer                  *client.Client
 	receipts                 *grc.Client
+	guppy                    *guppyclient.Client
 	space                    did.DID
 	proofs                   delegation.Proofs
-	shards                   eventlog.Iterable[model.Shard]
-	results                  eventlog.Appender[model.Retrieval]
+	dataDir                  string
 }
 
-func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
-	log.Info("Region")
-	log.Infof("  %s", r.region)
+func (r *RetrievalShardsTestRunner) Run(ctx context.Context) error {
+	shardsFile, err := os.Open(path.Join(r.dataDir, "shards.csv"))
+	if err != nil {
+		return err
+	}
+	shards := eventlog.NewCSVReader[model.Shard](shardsFile)
+	defer shardsFile.Close()
+
+	retrievalsFile, err := os.Create(path.Join(r.dataDir, "retrievals.csv"))
+	if err != nil {
+		return err
+	}
+	results := eventlog.NewCSVWriter[model.Retrieval](retrievalsFile)
+	defer results.Flush()
+	defer retrievalsFile.Close()
+
+	retrievalShardsLog.Info("Region")
+	retrievalShardsLog.Infof("  %s", r.region)
 
 	// Create Guppy client
 	guppyClient, err := guppyclient.NewClient(
@@ -47,23 +67,23 @@ func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 		return fmt.Errorf("creating guppy client: %w", err)
 	}
 
-	for s, err := range r.shards.Iterator() {
+	for s, err := range shards.Iterator() {
 		if err != nil {
 			return fmt.Errorf("reading shard from input: %w", err)
 		}
 		if s.Error.Error() != "" {
-			log.Infof("Skipping failed shard: %s", s.ID)
+			retrievalShardsLog.Infof("Skipping failed shard: %s", s.ID)
 			continue
 		}
-		log.Info("Shard")
-		log.Infof("  %s (%s)", s.ID, digestutil.Format(s.ID.Hash()))
-		log.Infof("    url: %s", s.URL.String())
+		retrievalShardsLog.Info("Shard")
+		retrievalShardsLog.Infof("  %s (%s)", s.ID, digestutil.Format(s.ID.Hash()))
+		retrievalShardsLog.Infof("    url: %s", s.URL.String())
 
 		shardDigest := s.ID.Hash()
 		shardLocationCommitment, err := findLocationWithAuth(ctx, r.id, r.indexingServicePrincipal, r.space, r.indexer, shardDigest, r.proofs)
 
 		if err != nil {
-			err = r.results.Append(model.Retrieval{
+			err = results.Append(model.Retrieval{
 				ID:     uuid.New(),
 				Region: r.region,
 				Source: s.Source,
@@ -74,13 +94,16 @@ func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			if err := results.Flush(); err != nil {
+				return fmt.Errorf("flushing CSV data: %w", err)
+			}
 			continue
 		}
 
 		nodeID, err := did.Parse(shardLocationCommitment.With())
 		if err != nil {
 			err = fmt.Errorf("parsing node DID from location commitment: %w", err)
-			err = r.results.Append(model.Retrieval{
+			err = results.Append(model.Retrieval{
 				ID:     uuid.New(),
 				Region: r.region,
 				Source: s.Source,
@@ -90,6 +113,9 @@ func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 			})
 			if err != nil {
 				return err
+			}
+			if err := results.Flush(); err != nil {
+				return fmt.Errorf("flushing CSV data: %w", err)
 			}
 			continue
 		}
@@ -120,9 +146,9 @@ func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 
 		retrieval.Ended = time.Now()
 
-		log.Infof("      %s @ 0-%d", digestutil.Format(shardDigest), s.Size-1)
+		retrievalShardsLog.Infof("      %s @ 0-%d", digestutil.Format(shardDigest), s.Size-1)
 
-		err = r.results.Append(model.Retrieval{
+		err = results.Append(model.Retrieval{
 			ID:      uuid.New(),
 			Region:  r.region,
 			Source:  s.Source,
@@ -141,27 +167,30 @@ func (r *AuthorizedRetrievalShardsTestRunner) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if err := results.Flush(); err != nil {
+			return fmt.Errorf("flushing CSV data: %w", err)
+		}
 
-		log.Infof("%s passed", digestutil.Format(shardDigest))
+		retrievalShardsLog.Infof("%s passed", digestutil.Format(shardDigest))
 	}
 
 	return nil
 }
 
-func NewAuthorizedRetrievalShardsTestRunner(
+func NewRetrievalShardsTestRunner(
 	region string,
 	id principal.Signer,
 	indexingServicePrincipal ucan.Principal,
 	indexer *client.Client,
+	guppy *guppyclient.Client,
 	receipts *grc.Client,
 	proof delegation.Delegation,
-	shards eventlog.Iterable[model.Shard],
-	results eventlog.Appender[model.Retrieval],
-) (*AuthorizedRetrievalShardsTestRunner, error) {
+	dataDir string,
+) (*RetrievalShardsTestRunner, error) {
 	space, err := ResourceFromDelegation(proof)
 	if err != nil {
 		return nil, err
 	}
 	proofs := []delegation.Proof{delegation.FromDelegation(proof)}
-	return &AuthorizedRetrievalShardsTestRunner{region, id, indexingServicePrincipal, indexer, receipts, space, proofs, shards, results}, nil
+	return &RetrievalShardsTestRunner{region, id, indexingServicePrincipal, indexer, receipts, guppy, space, proofs, dataDir}, nil
 }

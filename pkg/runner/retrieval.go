@@ -3,63 +3,104 @@ package runner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
+	"os"
+	"path"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/ipld/go-ipld-prime"
 	mh "github.com/multiformats/go-multihash"
 	"github.com/storacha/go-libstoracha/blobindex"
 	"github.com/storacha/go-libstoracha/capabilities/assert"
+	"github.com/storacha/go-libstoracha/capabilities/space/content"
+	"github.com/storacha/go-libstoracha/digestutil"
 	"github.com/storacha/go-ucanto/core/dag/blockstore"
 	"github.com/storacha/go-ucanto/core/delegation"
+	"github.com/storacha/go-ucanto/core/ipld"
 	"github.com/storacha/go-ucanto/did"
+	"github.com/storacha/go-ucanto/principal"
 	"github.com/storacha/go-ucanto/ucan"
+	"github.com/storacha/go-ucanto/validator"
+	guppyclient "github.com/storacha/guppy/pkg/client"
+	"github.com/storacha/guppy/pkg/client/locator"
+	grc "github.com/storacha/guppy/pkg/receipt"
 	"github.com/storacha/indexing-service/pkg/client"
 	"github.com/storacha/indexing-service/pkg/types"
 	"github.com/storacha/network-tester/pkg/eventlog"
 	"github.com/storacha/network-tester/pkg/model"
 )
 
-var log = logging.Logger("runner")
+var retrievalLog = logging.Logger("retrieval-runner")
+
+type sliceRetrieval struct {
+	Started   time.Time
+	Responded time.Time
+	Ended     time.Time
+	Status    int
+	Error     string
+}
 
 type RetrievalTestRunner struct {
-	region  string
-	indexer *client.Client
-	uploads eventlog.Iterable[model.Upload]
-	results eventlog.Appender[model.Retrieval]
+	region                   string
+	id                       principal.Signer
+	indexingServicePrincipal ucan.Principal
+	indexer                  *client.Client
+	receipts                 *grc.Client
+	guppy                    *guppyclient.Client
+	space                    did.DID
+	proofs                   delegation.Proofs
+	dataDir                  string
 }
 
 func (r *RetrievalTestRunner) Run(ctx context.Context) error {
-	log.Info("Region")
-	log.Infof("  %s", r.region)
+	uploadsFile, err := os.Open(path.Join(r.dataDir, "uploads.csv"))
+	if err != nil {
+		return err
+	}
+	uploads := eventlog.NewCSVReader[model.Upload](uploadsFile)
+	defer uploadsFile.Close()
+
+	retrievalsFile, err := os.Create(path.Join(r.dataDir, "retrievals.csv"))
+	if err != nil {
+		return err
+	}
+	results := eventlog.NewCSVWriter[model.Retrieval](retrievalsFile)
+	defer results.Flush()
+	defer retrievalsFile.Close()
+
+	retrievalLog.Info("Region")
+	retrievalLog.Infof("  %s", r.region)
 
 loop:
-	for u, err := range r.uploads.Iterator() {
+	for u, err := range uploads.Iterator() {
 		if err != nil {
 			return err
 		}
 		if u.Error.Error() != "" {
-			log.Infof("Skipping failed upload: %s", u.ID)
+			retrievalLog.Infof("Skipping failed upload: %s", u.ID)
 			continue
 		}
-		log.Info("Upload")
-		log.Infof("  %s", u.ID)
-		log.Infof("    root: %s", u.Root.String())
-		log.Infof("    source: %s", u.Source)
-		log.Infof("    index: %s", u.Index.String())
-		log.Infof("    shards: %v", u.Shards)
-		log.Infof("    started: %s", u.Started.Format(time.DateTime))
-		log.Infof("    ended: %s", u.Ended.Format(time.DateTime))
+		retrievalLog.Info("Upload")
+		retrievalLog.Infof("  %s", u.ID)
+		retrievalLog.Infof("    root: %s", u.Root.String())
+		retrievalLog.Infof("    source: %s", u.Source)
+		retrievalLog.Infof("    index: %s", u.Index.String())
+		retrievalLog.Infof("    shards:")
+		for _, s := range u.Shards {
+			retrievalLog.Infof("      %s", s)
+		}
+		retrievalLog.Infof("    started: %s", u.Started.Format(time.DateTime))
+		retrievalLog.Infof("    ended: %s", u.Ended.Format(time.DateTime))
 
-		index, err := findIndex(ctx, r.indexer, u.Root, u.Index, []delegation.Delegation{})
+		index, err := findIndexWithAuth(ctx, r.id, r.indexingServicePrincipal, r.space, r.indexer, u.Root, u.Index, r.proofs)
 		if err != nil {
-			err = r.results.Append(model.Retrieval{
+			retrievalLog.Infof("    error: %s", err.Error())
+			err = results.Append(model.Retrieval{
 				ID:     uuid.New(),
 				Region: r.region,
 				Source: u.Source,
@@ -69,16 +110,20 @@ loop:
 			if err != nil {
 				return err
 			}
+			if err := results.Flush(); err != nil {
+				return fmt.Errorf("flushing CSV data: %w", err)
+			}
 			continue
 		}
 
-		log.Info("Index")
-		log.Infof("  %s", u.Index)
+		retrievalLog.Info("Index")
+		retrievalLog.Infof("  %s", u.Index)
 
 		for shardDigest, slices := range index.Shards().Iterator() {
-			shardURL, shardLocationCommitment, err := findLocation(ctx, r.indexer, shardDigest)
+			shardLocationCommitment, err := findLocationWithAuth(ctx, r.id, r.indexingServicePrincipal, r.space, r.indexer, shardDigest, r.proofs)
 			if err != nil {
-				err = r.results.Append(model.Retrieval{
+				retrievalLog.Infof("    error: %s", err.Error())
+				err = results.Append(model.Retrieval{
 					ID:     uuid.New(),
 					Region: r.region,
 					Source: u.Source,
@@ -89,122 +134,120 @@ loop:
 				if err != nil {
 					return err
 				}
+				if err := results.Flush(); err != nil {
+					return fmt.Errorf("flushing CSV data: %w", err)
+				}
 				continue loop
 			}
 
-			log.Info("Shard")
-			log.Infof("  z%s", shardDigest.B58String())
-			log.Infof("    url: %s", shardURL.String())
-			log.Info("    slices:")
+			var urls []string
+			for _, url := range shardLocationCommitment.Nb().Location {
+				urls = append(urls, url.String())
+			}
 
-			for sliceDigest, position := range slices.Iterator() {
-				retrieval := testRetrieveSlice(sliceDigest, shardURL, position)
-				log.Infof("      z%s @ %d-%d", sliceDigest.B58String(), position.Offset, position.Offset+position.Length-1)
+			retrievalLog.Info("Shard")
+			retrievalLog.Infof("  %s", digestutil.Format(shardDigest))
+			retrievalLog.Infof("    urls: %s", strings.Join(urls, ", "))
+			retrievalLog.Info("    slices:")
 
-				nodeDid, err := did.Parse(shardLocationCommitment.With())
-				if err != nil {
-					return fmt.Errorf("parsing node DID from location commitment: %w", err)
-				}
-
-				err = r.results.Append(model.Retrieval{
-					ID:        uuid.New(),
-					Region:    r.region,
-					Source:    u.Source,
-					Upload:    u.ID,
-					Node:      model.DID{DID: nodeDid},
-					Shard:     model.Multihash{Multihash: shardDigest},
-					Slice:     model.Multihash{Multihash: sliceDigest},
-					Size:      int(position.Length),
-					Started:   retrieval.Started,
-					Responded: retrieval.Responded,
-					Ended:     retrieval.Ended,
-					Status:    retrieval.Status,
-					Error:     model.Error{Message: retrieval.Error},
+			nodeID, err := did.Parse(shardLocationCommitment.With())
+			if err != nil {
+				retrievalLog.Infof("    error: %s", err.Error())
+				err = fmt.Errorf("parsing node DID from location commitment: %w", err)
+				err = results.Append(model.Retrieval{
+					ID:     uuid.New(),
+					Region: r.region,
+					Source: u.Source,
+					Upload: u.ID,
+					Shard:  model.Multihash{Multihash: shardDigest},
+					Error:  model.Error{Message: err.Error()},
 				})
 				if err != nil {
 					return err
 				}
+				if err := results.Flush(); err != nil {
+					return fmt.Errorf("flushing CSV data: %w", err)
+				}
+				continue loop
+			}
+
+			for sliceDigest, position := range slices.Iterator() {
+				retrieval := sliceRetrieval{}
+				retrieval.Started = time.Now()
+
+				_, err := r.guppy.Retrieve(ctx, r.space, locator.Location{
+					Commitment: shardLocationCommitment,
+					Position:   position,
+					Digest:     sliceDigest,
+				})
+				if err != nil {
+					retrievalLog.Infof("    error: %s", err.Error())
+					errDesc := fmt.Sprintf("node: %s, urls: %s, range: bytes=%d-%d, slice: %s", nodeID.DID().String(), strings.Join(urls, ", "), position.Offset, position.Offset+position.Length-1, digestutil.Format(sliceDigest))
+					retrieval.Error = fmt.Errorf("executing authorized retrieval: %s: %w", errDesc, err).Error()
+				}
+
+				retrieval.Ended = time.Now()
+
+				retrievalLog.Infof("      %s @ %d-%d", digestutil.Format(sliceDigest), position.Offset, position.Offset+position.Length-1)
+
+				err = results.Append(model.Retrieval{
+					ID:      uuid.New(),
+					Region:  r.region,
+					Source:  u.Source,
+					Upload:  u.ID,
+					Node:    model.DID{DID: nodeID},
+					Shard:   model.Multihash{Multihash: shardDigest},
+					Slice:   model.Multihash{Multihash: sliceDigest},
+					Size:    int(position.Length),
+					Started: retrieval.Started,
+					// These are currently not visible from outside the Guppy client
+					// Responded: retrieval.Responded,
+					// Status:    retrieval.Status,
+					Ended: retrieval.Ended,
+					Error: model.Error{Message: retrieval.Error},
+				})
+				if err != nil {
+					return err
+				}
+				if err := results.Flush(); err != nil {
+					return fmt.Errorf("flushing CSV data: %w", err)
+				}
 			}
 		}
 
-		log.Infof("%s passed", u.ID)
+		retrievalLog.Infof("%s complete", u.ID)
 	}
 
 	return nil
 }
 
-type sliceRetrieval struct {
-	Started   time.Time
-	Responded time.Time
-	Ended     time.Time
-	Status    int
-	Error     string
-}
-
-func testRetrieveSlice(slice mh.Multihash, url url.URL, position blobindex.Position) sliceRetrieval {
-	started := time.Now()
-	req, err := http.NewRequest(http.MethodGet, url.String(), nil)
+func findIndexWithAuth(
+	ctx context.Context,
+	id ucan.Signer,
+	indexingServicePrincipal ucan.Principal,
+	space did.DID,
+	indexer *client.Client,
+	root model.Link,
+	index model.Link,
+	proofs delegation.Proofs,
+) (blobindex.ShardedDagIndexView, error) {
+	dlg, err := delegation.Delegate(
+		id,
+		indexingServicePrincipal,
+		[]ucan.Capability[ucan.NoCaveats]{
+			ucan.NewCapability(content.Retrieve.Can(), space.DID().String(), ucan.NoCaveats{}),
+		},
+		delegation.WithProof(proofs...),
+	)
 	if err != nil {
-		return sliceRetrieval{
-			Started: started,
-			Ended:   time.Now(),
-			Error:   fmt.Errorf("creating slice request to: %s for slice: z%s: %w", url.String(), slice.B58String(), err).Error(),
-		}
+		return nil, fmt.Errorf("creating retrieval delegation to indexing service: %s: %w", root.String(), err)
 	}
-	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", position.Offset, position.Offset+position.Length-1))
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return sliceRetrieval{
-			Started: started,
-			Ended:   time.Now(),
-			Status:  res.StatusCode,
-			Error:   fmt.Errorf("sending slice request to: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
-		}
-	}
-	responded := time.Now()
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return sliceRetrieval{
-			Started:   started,
-			Responded: responded,
-			Ended:     time.Now(),
-			Status:    res.StatusCode,
-			Error:     fmt.Errorf("reading slice response: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
-		}
-	}
-	dataDigest, err := mh.Sum(data, mh.SHA2_256, -1)
-	if err != nil {
-		return sliceRetrieval{
-			Started:   started,
-			Responded: responded,
-			Ended:     time.Now(),
-			Status:    res.StatusCode,
-			Error:     fmt.Errorf("hashing slice response: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
-		}
-	}
-	if !bytes.Equal(slice, dataDigest) {
-		return sliceRetrieval{
-			Started:   started,
-			Responded: responded,
-			Ended:     time.Now(),
-			Status:    res.StatusCode,
-			Error:     fmt.Errorf("hash integrity failure: %s Range: bytes=%d-%d for slice: z%s: %w", url.String(), position.Offset, position.Offset+position.Length-1, slice.B58String(), err).Error(),
-		}
-	}
-	return sliceRetrieval{
-		Started:   started,
-		Responded: responded,
-		Ended:     time.Now(),
-		Status:    res.StatusCode,
-	}
-}
-
-func findIndex(ctx context.Context, indexer *client.Client, root model.Link, index model.Link, delegations []delegation.Delegation) (blobindex.ShardedDagIndexView, error) {
-	fmt.Printf(">>> # of Delegations: %d\n", len(delegations))
-
 	result, err := indexer.QueryClaims(ctx, types.Query{
-		Hashes:      []mh.Multihash{root.Hash()},
-		Delegations: delegations,
+		Hashes: []mh.Multihash{root.Hash()},
+		Match: types.Match{
+			Subject: []did.DID{space},
+		},
+		Delegations: []delegation.Delegation{dlg},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("querying claims for: %s: %w", root.String(), err)
@@ -217,54 +260,71 @@ func findIndex(ctx context.Context, indexer *client.Client, root model.Link, ind
 	}) {
 		return nil, fmt.Errorf("index not found in query results: %s", index)
 	}
-	indexURL, _, err := extractLocation(index.Hash(), result)
-	if err != nil {
-		return nil, fmt.Errorf("extracting location URL for: z%s from result for root: %s: %w", index.Hash().B58String(), root, err)
+	for b, err := range result.Blocks() {
+		if err != nil {
+			return nil, err
+		}
+		if b.Link().String() == index.String() {
+			return blobindex.Extract(bytes.NewReader(b.Bytes()))
+		}
 	}
-	res, err := http.Get(indexURL.String())
-	if err != nil {
-		return nil, fmt.Errorf("getting index: z%s from URL: %s: %w", index.Hash().B58String(), indexURL.String(), err)
-	}
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading index: z%s: %w", index.Hash().B58String(), err)
-	}
-	digest, err := mh.Sum(body, mh.SHA2_256, -1)
-	if err != nil {
-		return nil, fmt.Errorf("hashing index body: z%s: %w", index.Hash().B58String(), err)
-	}
-	fmt.Printf(">>> Index body: %s\n", body)
-	if !bytes.Equal(digest, index.Hash()) {
-		return nil, fmt.Errorf("hash integrity failure: z%s: %w", index.Hash().B58String(), err)
-	}
-	dagIndex, err := blobindex.Extract(bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("extracting index: z%s: %w", index.Hash().B58String(), err)
-	}
-	return dagIndex, nil
+	return nil, fmt.Errorf("index not found")
 }
 
-func findLocation(ctx context.Context, indexer *client.Client, shard mh.Multihash) (url.URL, ucan.Capability[assert.LocationCaveats], error) {
+func findLocationWithAuth(
+	ctx context.Context,
+	id ucan.Signer,
+	indexingServicePrincipal ucan.Principal,
+	space did.DID,
+	indexer *client.Client,
+	shard mh.Multihash,
+	proofs delegation.Proofs,
+) (ucan.Capability[assert.LocationCaveats], error) {
+	dlg, err := content.Retrieve.Delegate(
+		id,
+		indexingServicePrincipal,
+		space.DID().String(),
+		content.RetrieveCaveats{},
+		delegation.WithProof(proofs...),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating retrieval delegation to indexing service: %w", err)
+	}
+
 	shardResult, err := indexer.QueryClaims(ctx, types.Query{
 		Hashes: []mh.Multihash{shard},
+		Match: types.Match{
+			Subject: []did.DID{space},
+		},
+		Delegations: []delegation.Delegation{dlg},
 	})
 	if err != nil {
-		return url.URL{}, nil, fmt.Errorf("querying claims for: %s: %w", shard.B58String(), err)
+		return nil, fmt.Errorf("querying claims for: %s: %w", shard.B58String(), err)
 	}
-	return extractLocation(shard, shardResult)
+
+	_, shardLocationCommitment, err := extractLocation(shard, shardResult)
+	if err != nil {
+		return nil, fmt.Errorf("extracting location for shard: z%s: %w", shard.B58String(), err)
+	}
+	return shardLocationCommitment, nil
 }
 
-type source struct {
-	capability ucan.Capability[any]
-	delegation delegation.Delegation
-}
-
-func (s source) Capability() ucan.Capability[any] {
-	return s.capability
-}
-
-func (s source) Delegation() delegation.Delegation {
-	return s.delegation
+func NewRetrievalTestRunner(
+	region string,
+	id principal.Signer,
+	indexingServicePrincipal ucan.Principal,
+	indexer *client.Client,
+	guppy *guppyclient.Client,
+	receipts *grc.Client,
+	proof delegation.Delegation,
+	dataDir string,
+) (*RetrievalTestRunner, error) {
+	space, err := ResourceFromDelegation(proof)
+	if err != nil {
+		return nil, err
+	}
+	proofs := []delegation.Proof{delegation.FromDelegation(proof)}
+	return &RetrievalTestRunner{region, id, indexingServicePrincipal, indexer, receipts, guppy, space, proofs, dataDir}, nil
 }
 
 // extractLocation inspects indexing service query results to find a location
@@ -281,10 +341,7 @@ func extractLocation(digest mh.Multihash, result types.QueryResult) (url.URL, uc
 			return url.URL{}, nil, err
 		}
 
-		match, err := assert.Location.Match(source{
-			capability: d.Capabilities()[0],
-			delegation: d,
-		})
+		match, err := assert.Location.Match(validator.NewSource(d.Capabilities()[0], d))
 		if err != nil {
 			continue
 		}
@@ -298,6 +355,22 @@ func extractLocation(digest mh.Multihash, result types.QueryResult) (url.URL, uc
 	return url.URL{}, nil, fmt.Errorf("no location commitment in results for: z%s", digest.B58String())
 }
 
-func NewRetrievalTestRunner(region string, indexer *client.Client, uploads eventlog.Iterable[model.Upload], results eventlog.Appender[model.Retrieval]) *RetrievalTestRunner {
-	return &RetrievalTestRunner{region, indexer, uploads, results}
+// ResourceFromDelegation extracts the capability resource (with) from a
+// delegation and parses it as a DID. It requires the delegation's capabilities
+// to all target the same resource and that the resource URI is a DID.
+func ResourceFromDelegation(d delegation.Delegation) (did.DID, error) {
+	if len(d.Capabilities()) == 0 {
+		return did.Undef, errors.New("delegation has no capabilities")
+	}
+	var resource string
+	for _, cap := range d.Capabilities() {
+		if resource == "" {
+			resource = cap.With()
+			continue
+		}
+		if resource != cap.With() {
+			return did.Undef, errors.New("delegation targets multiple resources")
+		}
+	}
+	return did.Parse(resource)
 }

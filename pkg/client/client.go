@@ -179,4 +179,5 @@ func (c *Client) SpaceBlobReplicate(ctx context.Context, space did.DID, blob typ
 func (c *Client) ResetTrackedData() {
 	c.Shards = map[string]*ShardInfo{}
 	c.Replications = map[string]*ReplicationInfo{}
+	c.Indexes = []cid.Cid{}
 }

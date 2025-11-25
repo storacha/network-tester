@@ -1,57 +1,60 @@
 package cmd
 
 import (
-	"os"
-
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/spf13/cobra"
+	guppyclient "github.com/storacha/guppy/pkg/client"
 	grc "github.com/storacha/guppy/pkg/receipt"
 	"github.com/storacha/indexing-service/pkg/client"
 	"github.com/storacha/network-tester/pkg/config"
-	"github.com/storacha/network-tester/pkg/eventlog"
-	"github.com/storacha/network-tester/pkg/model"
 	"github.com/storacha/network-tester/pkg/runner"
 )
 
-var authorizedRetrievalShardsCmd = &cobra.Command{
-	Use:   "authorized_retrieval_shards <path to shards csv>",
+var retrievalShardsCmd = &cobra.Command{
+	Use:   "retrieval_shards [data directory]",
 	Short: "Run UCAN authorized retrieval tests (just full shard retrievals)",
-	Long:  "Runs UCAN authorized retrieval tests using the passed CSV shards data.",
-	Args:  cobra.MinimumNArgs(1),
+	Long:  "Runs UCAN authorized retrieval tests. Reads from <datadir>/shards.csv and writes to <datadir>/retrievals.csv",
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		logging.SetLogLevel("*", "info")
 
-		shardsData, err := os.Open(args[0])
-		cobra.CheckErr(err)
+		dataDir := "data"
+		if len(args) > 0 {
+			dataDir = args[0]
+		}
 
 		indexer, err := client.New(config.IndexingServicePrincipal, *config.IndexingServiceURL)
 		cobra.CheckErr(err)
 
 		receipts := grc.New(config.UploadServiceURL.JoinPath("receipt"))
 
-		shards := eventlog.NewCSVReader[model.Shard](shardsData)
-		results := eventlog.NewCSVWriter[model.Retrieval](os.Stdout)
+		guppy, err := guppyclient.NewClient(
+			guppyclient.WithConnection(config.UploadServiceConnection),
+			guppyclient.WithPrincipal(config.ID()),
+			guppyclient.WithReceiptsClient(receipts),
+		)
+		cobra.CheckErr(err)
 
-		runner, err := runner.NewAuthorizedRetrievalShardsTestRunner(
+		err = guppy.AddProofs(config.Proof())
+		cobra.CheckErr(err)
+
+		runner, err := runner.NewRetrievalShardsTestRunner(
 			config.Region,
 			config.ID(),
 			config.IndexingServicePrincipal,
 			indexer,
+			guppy,
 			receipts,
 			config.Proof(),
-			shards,
-			results,
+			dataDir,
 		)
 		cobra.CheckErr(err)
 
 		err = runner.Run(cmd.Context())
 		cobra.CheckErr(err)
-
-		err = results.Flush()
-		cobra.CheckErr(err)
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(authorizedRetrievalShardsCmd)
+	rootCmd.AddCommand(retrievalShardsCmd)
 }

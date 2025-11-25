@@ -3,6 +3,7 @@ package cmd
 import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/spf13/cobra"
+	guppyclient "github.com/storacha/guppy/pkg/client"
 	grc "github.com/storacha/guppy/pkg/receipt"
 	"github.com/storacha/network-tester/pkg/config"
 	"github.com/storacha/network-tester/pkg/runner"
@@ -23,8 +24,27 @@ var uploadCmd = &cobra.Command{
 
 		receipts := grc.New(config.UploadServiceURL.JoinPath("receipt"))
 
-		runner := runner.NewUploadTestRunner(dataDir, receipts)
-		err := runner.Run(cmd.Context())
+		guppy, err := guppyclient.NewClient(
+			guppyclient.WithConnection(config.UploadServiceConnection),
+			guppyclient.WithPrincipal(config.ID()),
+			guppyclient.WithReceiptsClient(receipts),
+		)
+		cobra.CheckErr(err)
+
+		err = guppy.AddProofs(config.Proof())
+		cobra.CheckErr(err)
+
+		runner, err := runner.NewUploadTestRunner(
+			config.Region,
+			config.ID(),
+			guppy,
+			receipts,
+			config.Proof(),
+			dataDir,
+		)
+		cobra.CheckErr(err)
+
+		err = runner.Run(cmd.Context())
 		cobra.CheckErr(err)
 	},
 }
