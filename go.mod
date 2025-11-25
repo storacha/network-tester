@@ -17,7 +17,6 @@ require (
 	github.com/storacha/go-ucanto v0.6.7
 	github.com/storacha/guppy v0.0.4-0.20251119150728-f0b34c096007
 	github.com/storacha/indexing-service v1.11.3
-	modernc.org/sqlite v1.38.0
 )
 
 require (
@@ -100,4 +99,5 @@ require (
 	modernc.org/libc v1.65.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+	modernc.org/sqlite v1.38.0 // indirect
 )
