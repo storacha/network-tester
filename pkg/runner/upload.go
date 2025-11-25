@@ -43,11 +43,10 @@ import (
 var uploadLog = logging.Logger("upload-runner")
 
 const (
-	minFileSize = 128
-	maxBytes    = 100 * 1024 * 1024 * 1024 // 100 GB
-	// maxPerUploadBytes = 1 * 1024 * 1024 * 1024   // 1 GB
-	maxPerUploadBytes = 1 * 1024 * 1024 // 1 MB
-	maxShardSize      = 133_169_152     // Default SHARD_SIZE
+	minFileSize       = 128
+	maxBytes          = 20 * 1024 * 1024 * 1024 // 20 GB
+	maxPerUploadBytes = 1 * 1024 * 1024 * 1024  // 1 GB
+	maxShardSize      = 133_169_152             // Default SHARD_SIZE
 )
 
 type UploadTestRunner struct {
