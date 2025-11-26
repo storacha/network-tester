@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,6 +40,7 @@ import (
 	"github.com/storacha/network-tester/pkg/eventlog"
 	"github.com/storacha/network-tester/pkg/model"
 	"github.com/storacha/network-tester/pkg/util"
+	"golang.org/x/sync/errgroup"
 )
 
 var uploadLog = logging.Logger("upload-runner")
@@ -51,13 +53,15 @@ const (
 )
 
 type UploadTestRunner struct {
-	region   string
-	id       principal.Signer
-	receipts *grc.Client
-	guppy    *guppyclient.Client
-	space    did.DID
-	proofs   delegation.Proofs
-	dataDir  string
+	region          string
+	id              principal.Signer
+	receipts        *grc.Client
+	guppy           *guppyclient.Client
+	space           did.DID
+	proofs          delegation.Proofs
+	dataDir         string
+	skipReplication bool
+	parallel        int
 }
 
 func (r *UploadTestRunner) Run(ctx context.Context) error {
@@ -110,23 +114,74 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 	uploadLog.Infof("Region: %s", r.region)
 	uploadLog.Infof("Agent: %s", r.id.DID())
 	uploadLog.Infof("Space: %s", r.space)
+	if r.skipReplication {
+		uploadLog.Info("Replication: disabled")
+	}
+	if r.parallel > 1 {
+		uploadLog.Infof("Parallel workers: %d", r.parallel)
+	}
 
-	dbPath := filepath.Join(r.dataDir, "upload.db")
+	// Shared atomic counters for parallel workers
+	var totalSize atomic.Int64
+	var totalSources atomic.Int64
+
+	csvWriters := &csvWriters{
+		sources:      sourceCSV,
+		shards:       shardCSV,
+		uploads:      uploadCSV,
+		replications: replicationCSV,
+		transfers:    transferCSV,
+	}
+
+	if r.parallel == 1 {
+		// Sequential execution
+		return r.runWorker(ctx, 0, csvWriters, &totalSize, &totalSources)
+	}
+
+	// Parallel execution with errgroup
+	eg, ctx := errgroup.WithContext(ctx)
+
+	for i := 0; i < r.parallel; i++ {
+		workerID := i
+		eg.Go(func() error {
+			return r.runWorker(ctx, workerID, csvWriters, &totalSize, &totalSources)
+		})
+	}
+
+	// Wait for all workers and collect all errors
+	return eg.Wait()
+}
+
+type csvWriters struct {
+	sources      *eventlog.CSVWriter[model.Source]
+	shards       *eventlog.CSVWriter[model.Shard]
+	uploads      *eventlog.CSVWriter[model.Upload]
+	replications *eventlog.CSVWriter[model.Replication]
+	transfers    *eventlog.CSVWriter[model.ReplicaTransfer]
+}
+
+func (r *UploadTestRunner) runWorker(
+	ctx context.Context,
+	workerID int,
+	writers *csvWriters,
+	totalSize *atomic.Int64,
+	totalSources *atomic.Int64,
+) error {
+	dbPath := filepath.Join(r.dataDir, fmt.Sprintf("upload-%d.db", workerID))
 	var repo *sqlrepo.Repo
 	defer func() {
 		if repo != nil {
 			repo.Close()
 		}
+		// Clean up worker database
+		os.RemoveAll(dbPath)
 	}()
 
-	uploadClient := client.New(r.guppy)
+	uploadClient := client.New(r.guppy, r.skipReplication)
 
-	totalSize := int64(0)
-	totalSources := 0
-
-	for totalSize < maxBytes {
+	for totalSize.Load() < maxBytes {
 		// Create preparation database
-		err = os.RemoveAll(dbPath)
+		err := os.RemoveAll(dbPath)
 		if err != nil {
 			return fmt.Errorf("removing existing database: %w", err)
 		}
@@ -138,9 +193,10 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			return fmt.Errorf("opening repository: %w", err)
 		}
 
+		currentTotal := totalSize.Load()
 		maxSize := maxPerUploadBytes
-		if maxBytes-totalSize < int64(maxSize) {
-			maxSize = int(maxBytes - totalSize)
+		if maxBytes-currentTotal < int64(maxSize) {
+			maxSize = int(maxBytes - currentTotal)
 		}
 		if maxSize < minFileSize {
 			break
@@ -160,7 +216,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		uploadLog.Infof("  count: %d", len(sourceData))
 		uploadLog.Infof("  size: %d", calculateTotalSize(sourceData))
 
-		err = sourceCSV.Append(model.Source{
+		err = writers.sources.Append(model.Source{
 			ID:      sourceID,
 			Region:  config.Region,
 			Type:    sourceType,
@@ -171,7 +227,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("appending to source log: %w", err)
 		}
-		if err := sourceCSV.Flush(); err != nil {
+		if err := writers.sources.Flush(); err != nil {
 			return fmt.Errorf("flushing CSV log: %w", err)
 		}
 
@@ -279,11 +335,11 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			if info.Error != nil {
 				shardRecord.Error = model.Error{Message: info.Error.Error()}
 			}
-			err = shardCSV.Append(shardRecord)
+			err = writers.shards.Append(shardRecord)
 			if err != nil {
 				return fmt.Errorf("appending to shard log: %w", err)
 			}
-			if err := shardCSV.Flush(); err != nil {
+			if err := writers.shards.Flush(); err != nil {
 				return fmt.Errorf("flushing CSV log: %w", err)
 			}
 			shardLinks = append(shardLinks, model.ToLink(info.Link))
@@ -302,11 +358,11 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			if info.Error != nil {
 				replRecord.Error = model.Error{Message: info.Error.Error()}
 			}
-			err = replicationCSV.Append(replRecord)
+			err = writers.replications.Append(replRecord)
 			if err != nil {
 				return fmt.Errorf("appending to replication log: %w", err)
 			}
-			if err := replicationCSV.Flush(); err != nil {
+			if err := writers.replications.Flush(); err != nil {
 				return fmt.Errorf("flushing CSV log: %w", err)
 			}
 
@@ -328,7 +384,6 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 			}
 
 			var wg sync.WaitGroup
-			var mutex sync.Mutex
 			for _, task := range info.Transfers {
 				wg.Add(1)
 				go func() {
@@ -349,10 +404,8 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 					if err != nil {
 						uploadLog.Infof("    error: %s", err.Error())
 					}
-					mutex.Lock()
-					transferCSV.Append(transfer.ToModel(err))
-					transferCSV.Flush()
-					mutex.Unlock()
+					writers.transfers.Append(transfer.ToModel(err))
+					writers.transfers.Flush()
 					wg.Done()
 				}()
 			}
@@ -378,20 +431,21 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 		}
 
 		// Log upload
-		err = uploadCSV.Append(uploadRecord)
+		err = writers.uploads.Append(uploadRecord)
 		if err != nil {
 			return fmt.Errorf("appending to upload log: %w", err)
 		}
-		if err := uploadCSV.Flush(); err != nil {
+		if err := writers.uploads.Flush(); err != nil {
 			return fmt.Errorf("flushing CSV log: %w", err)
 		}
 
 		if uploadErr == nil {
-			totalSources++
-			totalSize += int64(calculateTotalSize(sourceData))
+			totalSources.Add(1)
+			sourceSize := int64(calculateTotalSize(sourceData))
+			totalSize.Add(sourceSize)
 		}
 
-		uploadLog.Infof("Summary: sources=%d size=%d", totalSources, totalSize)
+		uploadLog.Infof("Summary: sources=%d size=%d", totalSources.Load(), totalSize.Load())
 	}
 
 	return nil
@@ -433,20 +487,29 @@ func NewUploadTestRunner(
 	receipts *grc.Client,
 	proof delegation.Delegation,
 	dataDir string,
+	skipReplication bool,
+	parallel int,
 ) (*UploadTestRunner, error) {
 	space, err := ResourceFromDelegation(proof)
 	if err != nil {
 		return nil, err
 	}
 	proofs := []delegation.Proof{delegation.FromDelegation(proof)}
+
+	if parallel < 1 {
+		parallel = 1
+	}
+
 	return &UploadTestRunner{
-		id:       id,
-		guppy:    guppy,
-		region:   region,
-		dataDir:  dataDir,
-		receipts: receipts,
-		proofs:   proofs,
-		space:    space,
+		id:              id,
+		guppy:           guppy,
+		region:          region,
+		dataDir:         dataDir,
+		receipts:        receipts,
+		proofs:          proofs,
+		space:           space,
+		skipReplication: skipReplication,
+		parallel:        parallel,
 	}, nil
 }
 

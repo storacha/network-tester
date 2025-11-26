@@ -57,18 +57,20 @@ type ReplicationInfo struct {
 // Client wraps a Guppy client and tracks uploaded shards and replications
 type Client struct {
 	*guppy.Client
-	Shards       map[string]*ShardInfo       // key is shard CID
-	Replications map[string]*ReplicationInfo // key is blob digest
-	Indexes      []cid.Cid
+	Shards          map[string]*ShardInfo       // key is shard CID
+	Replications    map[string]*ReplicationInfo // key is blob digest
+	Indexes         []cid.Cid
+	skipReplication bool
 }
 
 var _ storacha.Client = (*Client)(nil)
 
-func New(client *guppy.Client) *Client {
+func New(client *guppy.Client, skipReplication bool) *Client {
 	return &Client{
-		Client:       client,
-		Shards:       map[string]*ShardInfo{},
-		Replications: map[string]*ReplicationInfo{},
+		Client:          client,
+		Shards:          map[string]*ShardInfo{},
+		Replications:    map[string]*ReplicationInfo{},
+		skipReplication: skipReplication,
 	}
 }
 
@@ -143,6 +145,11 @@ func (c *Client) SpaceIndexAdd(ctx context.Context, indexCID cid.Cid, indexSize 
 }
 
 func (c *Client) SpaceBlobReplicate(ctx context.Context, space did.DID, blob types.Blob, replicaCount uint, locationCommitment delegation.Delegation) (spaceblob.ReplicateOk, fx.Effects, error) {
+	// Skip replication if flag is set
+	if c.skipReplication {
+		return spaceblob.ReplicateOk{}, nil, nil
+	}
+
 	replInfo := ReplicationInfo{
 		Space:              space,
 		Digest:             blob.Digest,

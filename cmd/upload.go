@@ -22,6 +22,12 @@ var uploadCmd = &cobra.Command{
 			dataDir = args[0]
 		}
 
+		skipReplication, err := cmd.Flags().GetBool("skip-replication")
+		cobra.CheckErr(err)
+
+		parallel, err := cmd.Flags().GetInt("parallel")
+		cobra.CheckErr(err)
+
 		receipts := grc.New(config.UploadServiceURL.JoinPath("receipt"))
 
 		guppy, err := guppyclient.NewClient(
@@ -41,6 +47,8 @@ var uploadCmd = &cobra.Command{
 			receipts,
 			config.Proof(),
 			dataDir,
+			skipReplication,
+			parallel,
 		)
 		cobra.CheckErr(err)
 
@@ -51,4 +59,6 @@ var uploadCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(uploadCmd)
+	uploadCmd.Flags().Bool("skip-replication", false, "Skip replication and only test the upload path")
+	uploadCmd.Flags().Int("parallel", 1, "Number of concurrent upload workers for load testing")
 }
