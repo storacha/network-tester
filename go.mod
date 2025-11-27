@@ -17,6 +17,7 @@ require (
 	github.com/storacha/go-ucanto v0.6.7
 	github.com/storacha/guppy v0.0.4-0.20251119150728-f0b34c096007
 	github.com/storacha/indexing-service v1.11.3
+	golang.org/x/sync v0.16.0
 )
 
 require (
@@ -89,7 +90,6 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
-	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect

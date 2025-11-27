@@ -9,14 +9,19 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"sync"
 )
 
 type CSVWriter[T any] struct {
 	writer *csv.Writer
 	first  bool
+	mu     sync.Mutex
 }
 
 func (cw *CSVWriter[T]) Append(item T) error {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+
 	jsonData, err := json.Marshal(item)
 	if err != nil {
 		return fmt.Errorf("marshalling JSON: %w", err)
@@ -50,6 +55,9 @@ func (cw *CSVWriter[T]) Append(item T) error {
 }
 
 func (cw *CSVWriter[T]) Flush() error {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+
 	cw.writer.Flush()
 	return cw.writer.Error()
 }
