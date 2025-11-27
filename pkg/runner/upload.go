@@ -52,6 +52,30 @@ const (
 	maxShardSize      = 133_169_152             // Default SHARD_SIZE
 )
 
+// ANSI color codes for worker output
+var workerColors = []string{
+	"\033[36m", // cyan
+	"\033[33m", // yellow
+	"\033[35m", // magenta
+	"\033[32m", // green
+	"\033[34m", // blue
+	"\033[91m", // light red
+	"\033[92m", // light green
+	"\033[93m", // light yellow
+	"\033[94m", // light blue
+	"\033[95m", // light magenta
+}
+
+const colorReset = "\033[0m"
+
+func getWorkerPrefix(workerID int, parallel int) string {
+	if parallel <= 1 {
+		return ""
+	}
+	color := workerColors[workerID%len(workerColors)]
+	return fmt.Sprintf("%s[W%d]%s ", color, workerID, colorReset)
+}
+
 type UploadTestRunner struct {
 	region          string
 	id              principal.Signer
@@ -178,6 +202,7 @@ func (r *UploadTestRunner) runWorker(
 	}()
 
 	uploadClient := client.New(r.guppy, r.skipReplication)
+	prefix := getWorkerPrefix(workerID, r.parallel)
 
 	for totalSize.Load() < maxBytes {
 		// Create preparation database
@@ -211,10 +236,10 @@ func (r *UploadTestRunner) runWorker(
 
 		startTime := time.Now()
 
-		uploadLog.Infof("Source: %s", sourceID)
-		uploadLog.Infof("  type: %s", sourceType)
-		uploadLog.Infof("  count: %d", len(sourceData))
-		uploadLog.Infof("  size: %d", calculateTotalSize(sourceData))
+		uploadLog.Infof("%sSource: %s", prefix, sourceID)
+		uploadLog.Infof("%s  type: %s", prefix, sourceType)
+		uploadLog.Infof("%s  count: %d", prefix, len(sourceData))
+		uploadLog.Infof("%s  size: %d", prefix, calculateTotalSize(sourceData))
 
 		err = writers.sources.Append(model.Source{
 			ID:      sourceID,
@@ -294,30 +319,30 @@ func (r *UploadTestRunner) runWorker(
 		// Clear shard tracker for this upload
 		uploadClient.ResetTrackedData()
 
-		uploadLog.Infof("Upload: %s", uploadID)
+		uploadLog.Infof("%sUpload: %s", prefix, uploadID)
 
 		// Execute upload
 		rootCID, uploadErr := api.ExecuteUpload(ctx, upload)
 		if uploadErr != nil {
-			uploadLog.Infof("    error: %s", uploadErr.Error())
+			uploadLog.Infof("%s    error: %s", prefix, uploadErr.Error())
 		}
 		endTime := time.Now()
 
 		// Log shards that were tracked during upload
 		shardLinks := make([]model.Link, 0, len(uploadClient.Shards))
 		for _, info := range uploadClient.Shards {
-			uploadLog.Info("Shard")
-			uploadLog.Infof("  %s", info.Link)
-			uploadLog.Infof("    digest: %s", digestutil.Format(info.Digest))
-			uploadLog.Infof("    size: %d", info.Size)
+			uploadLog.Infof("%sShard", prefix)
+			uploadLog.Infof("%s  %s", prefix, info.Link)
+			uploadLog.Infof("%s    digest: %s", prefix, digestutil.Format(info.Digest))
+			uploadLog.Infof("%s    size: %d", prefix, info.Size)
 			if info.NodeID != did.Undef {
-				uploadLog.Infof("    node: %s", info.NodeID.DID())
+				uploadLog.Infof("%s    node: %s", prefix, info.NodeID.DID())
 			}
 			if info.URL != (url.URL{}) {
-				uploadLog.Infof("    url: %s", info.URL.String())
+				uploadLog.Infof("%s    url: %s", prefix, info.URL.String())
 			}
 			if info.Error != nil {
-				uploadLog.Infof("    error: %s", info.Error.Error())
+				uploadLog.Infof("%s    error: %s", prefix, info.Error.Error())
 			}
 			shardRecord := model.Shard{
 				ID:      model.ToLink(info.Link),
@@ -366,20 +391,20 @@ func (r *UploadTestRunner) runWorker(
 				return fmt.Errorf("flushing CSV log: %w", err)
 			}
 
-			uploadLog.Info("Replication")
-			uploadLog.Infof("  %s", replRecord.ID)
-			uploadLog.Infof("    shard: %s", shardLink)
-			uploadLog.Infof("    replicas: %d", info.Replicas)
+			uploadLog.Infof("%sReplication", prefix)
+			uploadLog.Infof("%s  %s", prefix, replRecord.ID)
+			uploadLog.Infof("%s    shard: %s", prefix, shardLink)
+			uploadLog.Infof("%s    replicas: %d", prefix, info.Replicas)
 			if len(info.Transfers) > 0 {
-				uploadLog.Info("    transfers:")
+				uploadLog.Infof("%s    transfers:", prefix)
 				for _, s := range info.Transfers {
-					uploadLog.Infof("      %s", s.String())
+					uploadLog.Infof("%s      %s", prefix, s.String())
 				}
 			}
-			uploadLog.Infof("    requested: %s", info.Requested.Format(time.DateTime))
+			uploadLog.Infof("%s    requested: %s", prefix, info.Requested.Format(time.DateTime))
 
 			if info.Error != nil {
-				uploadLog.Infof("    error: %s", info.Error.Error())
+				uploadLog.Infof("%s    error: %s", prefix, info.Error.Error())
 				continue
 			}
 
@@ -387,22 +412,22 @@ func (r *UploadTestRunner) runWorker(
 			for _, task := range info.Transfers {
 				wg.Add(1)
 				go func() {
-					uploadLog.Info("Waiting for transfer...")
-					uploadLog.Infof("  %s", task.String())
+					uploadLog.Infof("%sWaiting for transfer...", prefix)
+					uploadLog.Infof("%s  %s", prefix, task.String())
 
 					transfer, err := waitForTransfer(ctx, r.receipts, replRecord.ID, task, info.Requested)
 
-					uploadLog.Info("Transfer")
-					uploadLog.Infof("  %s", task.String())
+					uploadLog.Infof("%sTransfer", prefix)
+					uploadLog.Infof("%s  %s", prefix, task.String())
 					if transfer.node != did.Undef {
-						uploadLog.Infof("    node: %s", transfer.node.String())
+						uploadLog.Infof("%s    node: %s", prefix, transfer.node.String())
 					}
 					if transfer.url != nil {
-						uploadLog.Infof("    url: %s", transfer.url.String())
+						uploadLog.Infof("%s    url: %s", prefix, transfer.url.String())
 					}
-					uploadLog.Infof("    elapsed: %s", transfer.ended.Sub(info.Requested).String())
+					uploadLog.Infof("%s    elapsed: %s", prefix, transfer.ended.Sub(info.Requested).String())
 					if err != nil {
-						uploadLog.Infof("    error: %s", err.Error())
+						uploadLog.Infof("%s    error: %s", prefix, err.Error())
 					}
 					writers.transfers.Append(transfer.ToModel(err))
 					writers.transfers.Flush()
@@ -411,7 +436,7 @@ func (r *UploadTestRunner) runWorker(
 			}
 			wg.Wait()
 
-			uploadLog.Infof("%s replicated", shardLink)
+			uploadLog.Infof("%s%s replicated", prefix, shardLink)
 		}
 
 		uploadRecord := model.Upload{
@@ -445,7 +470,7 @@ func (r *UploadTestRunner) runWorker(
 			totalSize.Add(sourceSize)
 		}
 
-		uploadLog.Infof("Summary: sources=%d size=%d", totalSources.Load(), totalSize.Load())
+		uploadLog.Infof("%sSummary: sources=%d size=%d", prefix, totalSources.Load(), totalSize.Load())
 	}
 
 	return nil
