@@ -335,7 +335,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 					uploadLog.Info("Waiting for transfer...")
 					uploadLog.Infof("  %s", task.String())
 
-					transfer, err := waitForTransfer(ctx, r.receipts, replRecord.ID, task)
+					transfer, err := waitForTransfer(ctx, r.receipts, replRecord.ID, task, info.Requested)
 
 					uploadLog.Info("Transfer")
 					uploadLog.Infof("  %s", task.String())
@@ -345,7 +345,7 @@ func (r *UploadTestRunner) Run(ctx context.Context) error {
 					if transfer.url != nil {
 						uploadLog.Infof("    url: %s", transfer.url.String())
 					}
-					uploadLog.Infof("    elapsed: %s", transfer.ended.Sub(transfer.started).String())
+					uploadLog.Infof("    elapsed: %s", transfer.ended.Sub(info.Requested).String())
 					if err != nil {
 						uploadLog.Infof("    error: %s", err.Error())
 					}
@@ -478,11 +478,11 @@ func (t replicaTransfer) ToModel(err error) model.ReplicaTransfer {
 	return m
 }
 
-func waitForTransfer(ctx context.Context, receipts *grc.Client, replID uuid.UUID, task ipld.Link) (replicaTransfer, error) {
+func waitForTransfer(ctx context.Context, receipts *grc.Client, replID uuid.UUID, task ipld.Link, start time.Time) (replicaTransfer, error) {
 	transfer := replicaTransfer{
 		id:          task,
 		replication: replID,
-		started:     time.Now(),
+		started:     start,
 	}
 
 	// spend around 5 mins waiting for the receipt
