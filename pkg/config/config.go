@@ -50,6 +50,12 @@ func Load() {
 		UploadServicePrincipal = Must(did.Parse("did:web:staging.up.warm.storacha.network"))
 		UploadServiceURL = Must(url.Parse("https://staging.up.warm.storacha.network"))
 		Replicas = 3
+	case "forge-prod":
+		IndexingServicePrincipal = Must(did.Parse("did:web:indexer.forge.storacha.network"))
+		IndexingServiceURL = Must(url.Parse("https://indexer.forge.storacha.network"))
+		UploadServicePrincipal = Must(did.Parse("did:web:up.forge.storacha.network"))
+		UploadServiceURL = Must(url.Parse("https://up.forge.storacha.network"))
+		Replicas = 3
 	default:
 		panic("unknown network: " + os.Getenv("NETWORK"))
 	}
