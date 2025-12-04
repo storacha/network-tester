@@ -32,7 +32,7 @@ func init() {
 
 func Load() {
 	switch os.Getenv("NETWORK") {
-	case "", "hot":
+	case "", "hot", "prod":
 		IndexingServicePrincipal = Must(did.Parse("did:web:indexer.storacha.network"))
 		IndexingServiceURL = Must(url.Parse("https://indexer.storacha.network"))
 		UploadServicePrincipal = Must(did.Parse("did:web:up.storacha.network"))
