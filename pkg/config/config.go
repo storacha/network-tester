@@ -55,7 +55,7 @@ func Load() {
 		IndexingServiceURL = Must(url.Parse("https://indexer.forge.storacha.network"))
 		UploadServicePrincipal = Must(did.Parse("did:web:up.forge.storacha.network"))
 		UploadServiceURL = Must(url.Parse("https://up.forge.storacha.network"))
-		Replicas = 1
+		Replicas = 3
 	default:
 		panic("unknown network: " + os.Getenv("NETWORK"))
 	}
